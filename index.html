@@ -397,6 +397,7 @@ ja:{
   'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
   'circuit.stab':'スタブ','circuit.jazz':'エレピ','circuit.sustain':'持続','circuit.funk':'持続(薄)',
   'mode2.break':'ブレイク','mode2.morph':'連続変形','mode2.mix':'ミックス',
+  'mode3.chop':'連打',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -452,6 +453,7 @@ en:{
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
   'mode2.break':'break','mode2.morph':'morph','mode2.mix':'mix',
+  'mode3.chop':'chop',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -547,13 +549,13 @@ const SCENES = [
   {id:'glass',    group:'jazz',    yy:0.38, bpm:125, kit:'hard',    hatK:9,  glitch:.40, w:{plateau:4,build:2,break:2,drop:1,dubout:4}},
   {id:'dusk',     group:'jazz',    yy:0.45, bpm:122, kit:'warm',    hatK:7,  glitch:.15, w:{plateau:5,build:3,break:2,drop:1,dubout:2}},
   // --- electro funk ---
-  {id:'gear',     group:'funk',    yy:0.50, bpm:121, kit:'hard',    hatK:11, glitch:.55, w:{plateau:3,build:3,break:2,drop:3,dubout:1}},
-  {id:'bounce',   group:'funk',    yy:0.55, bpm:123, kit:'electro', hatK:9,  glitch:.40, w:{plateau:2,build:4,break:2,drop:4,dubout:1}},
-  {id:'steel',    group:'funk',    yy:0.62, bpm:127, kit:'electro', hatK:11, glitch:.70, w:{plateau:2,build:4,break:3,drop:4,dubout:1}},
-  {id:'spark',    group:'funk',    yy:0.72, bpm:129, kit:'electro', hatK:7,  glitch:.40, w:{plateau:2,build:5,break:2,drop:5,dubout:0}},
+  {id:'gear',     group:'funk',    yy:0.50, bpm:121, kit:'hard',    hatK:11, glitch:.55, chop:.6, w:{plateau:3,build:3,break:2,drop:3,dubout:1}},
+  {id:'bounce',   group:'funk',    yy:0.55, bpm:123, kit:'electro', hatK:9,  glitch:.40, chop:.5, w:{plateau:2,build:4,break:2,drop:4,dubout:1}},
+  {id:'steel',    group:'funk',    yy:0.62, bpm:127, kit:'electro', hatK:11, glitch:.70, chop:.5, w:{plateau:2,build:4,break:3,drop:4,dubout:1}},
+  {id:'spark',    group:'funk',    yy:0.72, bpm:129, kit:'electro', hatK:7,  glitch:.40, chop:1,  w:{plateau:2,build:5,break:2,drop:5,dubout:0}},
   // --- 持続回路 / 陽 ---
-  {id:'daybreak', group:'sustain', yy:0.80, bpm:126, kit:'warm',    hatK:7,  glitch:.15, w:{plateau:3,build:6,break:1,drop:4,dubout:1}},
-  {id:'dash',     group:'sustain', yy:0.93, bpm:132, kit:'electro', hatK:11, glitch:.40, w:{plateau:2,build:6,break:1,drop:5,dubout:0}},
+  {id:'daybreak', group:'sustain', yy:0.80, bpm:126, kit:'warm',    hatK:7,  glitch:.15, chop:.3, w:{plateau:3,build:6,break:1,drop:4,dubout:1}},
+  {id:'dash',     group:'sustain', yy:0.93, bpm:132, kit:'electro', hatK:11, glitch:.40, chop:.5, w:{plateau:2,build:6,break:1,drop:5,dubout:0}},
   {id:'jubilee',  group:'sustain', yy:1.00, bpm:130, kit:'electro', hatK:9,  glitch:.15, w:{plateau:2,build:7,break:1,drop:6,dubout:0}},
 ];
 // シーン一覧はこの順に並べる。群の見出しを間に挟む
@@ -599,6 +601,7 @@ let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     bassAmp=null, bassComp=null, bassLfo=null, bassReady=false,
     padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
     leadBus=null, leadFilt=null, leadDly=null, leadTaps=null,
+    chopBus=null, chopDly=null, chopTaps=null,
     phaserSend=null, phaserWet=null, phaserLfo=null,
     noiseBuf=null, metalBuf=null,
     running=false, ready=false;
@@ -837,6 +840,30 @@ function buildHarmony(){
   epBus.connect(dry);
   const eRev=ctx.createGain(); eRev.gain.value=.35; epBus.connect(eRev).connect(revSend);
   const eDly=ctx.createGain(); eDly.gain.value=.2;  epBus.connect(eDly).connect(dlySend);
+
+  /* ---- コード弾きの連打 (D-34) ----
+     持続する音色の代わりに、サステインを持たない短い和音を連打する。
+     専用のステレオディレイ (左右で返しを送り合う ping-pong) へ送り、
+     原音より返しのほうが多く出るようにする */
+  chopBus=ctx.createGain(); chopBus.gain.value=0;
+  const chDry=ctx.createGain(); chDry.gain.value=.45;
+  chopBus.connect(chDry).connect(mixFilter);
+  const chRev=ctx.createGain(); chRev.gain.value=.25; chopBus.connect(chRev).connect(revSend);
+  chopDly=ctx.createGain(); chopDly.gain.value=.7;
+  chopBus.connect(chopDly);
+  const mkChop=(pan)=>{
+    const d=ctx.createDelay(4), fb=ctx.createGain(), lp=ctx.createBiquadFilter(),
+          pn=ctx.createStereoPanner(), o=ctx.createGain();
+    lp.type='lowpass'; lp.frequency.value=3200; fb.gain.value=.38;
+    pn.pan.value=pan; o.gain.value=.65;
+    d.connect(lp); lp.connect(o).connect(pn).connect(mixFilter);
+    return {d,fb,lp,pn,o};
+  };
+  const chL=mkChop(-.8), chR=mkChop(.8);
+  chopDly.connect(chL.d); chopDly.connect(chR.d);
+  chL.lp.connect(chL.fb).connect(chR.d);
+  chR.lp.connect(chR.fb).connect(chL.d);
+  chopTaps={l:chL,r:chR};
 
   build.harmSends={pad:{rev:pRev,dly:pDly}, stab:{dry:sDry,rev:sRev,dly:sDly}, ep:{rev:eRev,dly:eDly}};
 
@@ -1148,6 +1175,8 @@ function bassCutoffBase(){
 // ベースの音色。シーンに入るたびに引き直す。
 // true なら、サスティンを持たずディケイだけで落ちるタイトな音になる (D-25)
 let bassTight=false;
+// true なら、持続する和音の代わりに短い和音を連打する (D-34)
+let padChop=false;
 
 let padVoices=[];
 function padRebuild(time){
@@ -1190,6 +1219,29 @@ function padPluck(time,midi,layerIdx,type,dec,vel){
   o.connect(g).connect(pn).connect(padLayer[layerIdx]);
   o.start(time); o.stop(time+dec+.05);
   disposeAt(o,time+dec+.1); disposeAt(g,time+dec+.1); disposeAt(pn,time+dec+.1);
+}
+
+/* ---- コード弾きの連打 (D-34) ----
+   サステインを持たず、短いディケイだけで落ちる和音。ステレオディレイで広げる */
+function chordChop(time,vel){
+  const tones=chordNotes(48);
+  const g=ctx.createGain(), f=ctx.createBiquadFilter(), pn=ctx.createStereoPanner();
+  f.type='lowpass'; f.Q.value=3.2;
+  const base=1200+current.yy*3200;
+  f.frequency.setValueAtTime(Math.min(base*2.4,9000),time);
+  f.frequency.exponentialRampToValueAtTime(Math.max(400,base*.8),time+.08);
+  pn.pan.value=rand(-.25,.25);
+  decayTo(g.gain,time,vel*.16,.085,.003);
+  f.connect(g).connect(pn).connect(chopBus);
+  for(const n of tones){
+    for(const det of [-4,4]){
+      const o=ctx.createOscillator();
+      o.type='sawtooth'; o.frequency.value=mtof(n); o.detune.value=det;
+      o.connect(f); o.start(time); o.stop(time+.16);
+      disposeAt(o,time+.2);
+    }
+  }
+  for(const n of [f,g,pn]) disposeAt(n,time+.24);
 }
 
 /* ---- スタブ回路の発音 (D-9) ----
@@ -1490,10 +1542,16 @@ function apply(){
     const cir=circuit(), L=padLayers();
     padBus.gain.setTargetAtTime((cir==='sustain'?.62:cir==='funk'?.28:0)*(.5+c.density*.5),tm,T*3);
     for(let i=0;i<4;i++){
-      // 上の層ほど遅れて出る。剥がすときは速く落とす
-      const on = i<L;
+      // 上の層ほど遅れて出る。剥がすときは速く落とす。
+      // 連打のときは、持続音にあたる下2層を止めて代わりに連打が鳴る (D-34)
+      const on = i<L && !(padChop && i<2);
       padLayer[i].gain.setTargetAtTime(on?(i<2?1:.7):0, tm, on?T*4:T);
     }
+    // 連打の量とディレイ。ディレイはテンポに同期させ、左右で16分3つと5つ
+    chopBus.gain.setTargetAtTime(padChop?(.7*(.6+c.density*.5)):0,tm,T*2);
+    chopDly.gain.setTargetAtTime(.45+c.space*.6,tm,T*2);
+    chopTaps.l.d.delayTime.setTargetAtTime(sd*3,tm,1.2);
+    chopTaps.r.d.delayTime.setTargetAtTime(sd*5,tm,1.2);
     padFilter.frequency.setTargetAtTime(700+c.yy*4200+(phrase==='build'?2200:0),tm,T*3);
     stabBus.gain.setTargetAtTime(cir==='stab'?(phrase==='break'?.16:.78):0,tm,T*2);
     stabFilter.frequency.setTargetAtTime(1200+c.yy*2600,tm,T*2);
@@ -1595,6 +1653,8 @@ function enterScene(idx,{manual=false,keepKey=false}={}){
   pickProg();         // 回路が変わるので和音の進行も選び直す
   // 陽と electro funk では刻む音になりやすく、陰では持続する音になりやすい
   bassTight = Math.random() < (SCENES[idx].yy*.5 + (SCENES[idx].group==='funk'?.35:.05));
+  // コード弾きを持続音にするか連打にするか (D-34)。出やすさはシーンごとに持つ
+  padChop = Math.random() < (SCENES[idx].chop||0);
   chordAt=-999;       // 次の小節で必ず和音を組み直す
   sceneStartBar=barCount;
   sceneBars=sceneLengthBars();
@@ -1674,7 +1734,7 @@ function maybeEvent(bar,time){
    各トラックは16個の強さ (0 なら鳴らさない) を持つ。
    ============================================================ */
 const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[],bass:[],
-           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[]};
+           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[],chop:[]};
 let leadType='sawtooth';   // 16分シーケンスの音色。小節ごとに引き直す
 // オカズが次の小節へはみ出したぶん。次の小節の頭に足される
 let pendingSpill=null;
@@ -1909,6 +1969,19 @@ function buildBar(bar,scIdx,phr,seed,fillBar){
     if(i%2===0 && R()<.85) arp[i]=.5+R()*.3;
     if((i===0||i===3||i===6||i===11) && R()<.55) riff[i]=.5+R()*.4;
   }
+  /* 連打の並び (D-34)。8分を基本に、たまに16分の返しを足す。
+     持続音の代わりなので、層の数が増えるほど詰まる */
+  const chop=new Array(16).fill(0);
+  if(padChop && !quiet && (cir==='sustain'||cir==='funk')){
+    const dens=clamp(.45+d*.35+(phr==='build'?.2:0));
+    for(let i=0;i<16;i+=2){
+      if(R()>dens) continue;
+      chop[i]=(i%4===0?.95:.7)*(.85+R()*.3);
+      if(R()<.28) chop[i+1]=.5;   // 16分の返し
+    }
+  }
+  out.chop=chop;
+
   out.stab=stab; out.ep=ep; out.arp=arp; out.riff=riff;
 
   /* --- 16分のシーケンス (D-21) ---
@@ -2148,6 +2221,7 @@ function playStep(i,time){
   // --- ハーモニー
   if(seq.stab[i]) stabHit(time,seq.stab[i]);
   if(seq.ep[i])   epChord(time,seq.ep[i]);
+  if(seq.chop[i]) chordChop(time,seq.chop[i]);
   const L=padLayers();
   if(L>=3 && seq.arp[i]){
     // アルペジオは和音の構成音を順に上る
@@ -2473,7 +2547,8 @@ function showProgress(){
   pWave.textContent=`${yy.toFixed(2)}  ${(wavePos*100).toFixed(0)}%  / ${Math.round(wavePeriod/60)}min`;
   pKey.textContent=`${NOTE_NAMES[keyPc]} ${t('mode.'+SCENES[sceneIdx].group)}`;
   const q=chordQual==='x13'?'13':chordQual;
-  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${epGuest?' + ep':''}]`;
+  const mode = (circuit()==='sustain'||circuit()==='funk') && padChop ? ' '+t('mode3.chop') : '';
+  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${mode}${epGuest?' + ep':''}]`;
 }
 
 /* ---- XY パッド ---- */

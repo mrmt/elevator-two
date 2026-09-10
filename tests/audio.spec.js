@@ -242,3 +242,57 @@ test('16分のシーケンスが鳴る', async ({ page }) => {
   const odd = lead.filter(t => Math.round((t - base) / step) % 2 === 1).length;
   expect(odd).toBeGreaterThan(3);
 });
+
+test('コード弾きに連打のバリエーションがある', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-34。火花 (spark) は必ず連打になるシーン。
+  // 短い和音なので、鋸波が同じ時刻にまとまって立ち、すぐ止まる
+  await page.addInitScript(() => {
+    window.__chop = [];
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const start = o.start.bind(o);
+      const stop = o.stop.bind(o);
+      let began = null;
+      o.start = function (when) { began = when; return start(when); };
+      o.stop = function (when) {
+        // 和音の連打は 160ms で切れる。持続音は切らないので混ざらない
+        if (o.type === 'sawtooth' && began !== null && when - began > 0.15 && when - began < 0.17) {
+          window.__chop.push(began);
+        }
+        return stop(when);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(10).click();   // 火花 spark
+  await expect(page.locator('#pchord')).toContainText('連打');
+
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1500);
+  const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
+
+  await page.evaluate(() => { window.__chop.length = 0; });
+  await page.waitForTimeout(9000);
+  const hits = [...new Set(await page.evaluate(() => window.__chop))].sort((a, b) => a - b);
+  expect(hits.length).toBeGreaterThan(8);
+
+  // 8分を基本に置くので、隣り合う打点は8分ひとつぶんが最も多い
+  const step = (60 / bpm) / 4;
+  const gaps = [];
+  for (let i = 1; i < hits.length; i++) gaps.push(Math.round((hits[i] - hits[i - 1]) / step));
+  expect(gaps.filter(g => g === 2).length).toBeGreaterThan(gaps.length * 0.3);
+  // すべて16分の格子の上にある
+  expect(gaps.every(g => g >= 1)).toBe(true);
+});
+
+test('持続のシーンでは連打にならない', async ({ page }) => {
+  // 祝祭 (jubilee) は chop を持たないので、必ず持続音になる (D-34)
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(13).click();
+  await expect(page.locator('#pchord')).toContainText('持続');
+  await expect(page.locator('#pchord')).not.toContainText('連打');
+});
