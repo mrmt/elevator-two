@@ -92,7 +92,7 @@ test('「次へ」でシーンが変わる', async ({ page }) => {
 });
 
 test('一覧から選ぶとそのシーンになる', async ({ page }) => {
-  const btn = page.locator('.scenebtn').nth(9);   // 遠望 vista
+  const btn = page.locator('.scenebtn').nth(9);   // 鋼 steel
   const name = await btn.locator('span').first().textContent();
   await btn.click();
   await expect(page.locator('#scenename')).toHaveText(name);
@@ -107,7 +107,7 @@ test('スライダーを触ると (edit) が付く', async ({ page }) => {
 
 test('シーンごとに使うハーモニー回路が変わる', async ({ page }) => {
   // D-8 のとおり、3回路のどれを鳴らすかはシーンが決める
-  const cases = [[0, 'スタブ'], [5, 'エレピ'], [10, '持続'], [7, '持続(薄)']];
+  const cases = [[0, 'スタブ'], [5, 'エレピ'], [11, '持続'], [7, '持続(薄)']];
   for (const [idx, label] of cases) {
     await page.locator('.scenebtn').nth(idx).click();
     await expect(page.locator('#pchord')).toContainText(label);
@@ -146,9 +146,9 @@ test('「次へ」はブレイクを挟んでシーンを乗り換える', async
   const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
   await page.locator('#next').click();
 
-  // ブレイクに入り、行き先が矢印付きで出る
+  // 行き先が矢印付きで出る。ブレイクになるのは乗り換えの直前1小節だけなので、
+  // ここではまだ今のフレーズのまま (D-24)
   await expect(page.locator('#pphrase')).toContainText('→', { timeout: 8000 });
-  await expect(page.locator('#pphrase')).toContainText('ブレイク');
   // まだシーンは変わっていない
   expect((await page.locator('#scenename').textContent()).replace(' (edit)', '')).toBe(before);
 
@@ -224,4 +224,85 @@ test('ミックスの遷移では新旧が重なる', async ({ page }) => {
     { timeout: 60000, intervals: [500] }).not.toBe(before);
   // 乗り換えが済んだら表示から矢印が消える
   await expect(page.locator('#pphrase')).not.toContainText('→');
+});
+
+test('ブレイクは1小節を超えない', async ({ page }) => {
+  test.setTimeout(120000);
+  // D-24。霜 (frost) はブレイクの出やすいシーン
+  await page.locator('.scenebtn').nth(2).click();
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
+  const barMs = (60 / bpm) * 4 * 1000;
+
+  const phrase = async () => (await page.locator('#pphrase').textContent()).trim();
+  // ブレイクが出るまで待つ
+  await expect.poll(phrase, { timeout: 90000, intervals: [150] }).toContain('ブレイク');
+  const t0 = Date.now();
+  // 抜けるまで待つ
+  await expect.poll(phrase, { timeout: 20000, intervals: [100] }).not.toContain('ブレイク');
+  // 検出の遅れぶんを見込んでも、2小節ぶんは超えない
+  expect(Date.now() - t0).toBeLessThan(barMs * 2);
+});
+
+test('ベースの旋律は小節ごとには変わらない', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-30。ベースの矩形波は鋸波2本の差なので、低い sawtooth の予約を拾えば旋律が分かる
+  await page.addInitScript(() => {
+    window.__bn = [];
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const start = o.start.bind(o);
+      o.start = function (when) {
+        if (o.type === 'sawtooth' && o.frequency.value < 120 && typeof when === 'number') {
+          window.__bn.push([when, o.frequency.value]);
+        }
+        return start(when);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(0).click();    // 潜行。和音が16小節ごとにしか動かない
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#s_mutate').fill('0');          // 変異で引き直させない
+  await page.locator('#s_evolution').fill('0');       // フレーズを早く切り替えさせない
+  await page.locator('#play').click();
+  // BPM は時定数6秒で目標へ寄るので、落ち着くまで待つ。
+  // 途中で測ると小節の長さがずれ、位置の比較が崩れる
+  await page.waitForTimeout(16000);
+  const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
+
+  await page.evaluate(() => { window.__bn.length = 0; });
+  await page.waitForTimeout(14000);
+  const raw = await page.evaluate(() => window.__bn);
+  expect(raw.length).toBeGreaterThan(20);
+
+  // 1音につき鋸波が6本立つので、時刻でまとめる
+  const notes = new Map();
+  for (const [t, f] of raw) notes.set(Math.round(t * 1000), f);
+
+  const barSec = (60 / bpm) * 4;
+  const step = barSec / 16;
+  const t0 = Math.min(...notes.keys()) / 1000;
+  const bars = new Map();
+  for (const [ms, f] of notes) {
+    const t = ms / 1000;
+    const bar = Math.floor((t - t0) / barSec + 0.001);
+    const pos = ((Math.round((t - t0) / step) % 16) + 16) % 16;
+    const midi = Math.round(69 + 12 * Math.log2(f / 440));
+    if (!bars.has(bar)) bars.set(bar, []);
+    bars.get(bar).push(`${pos}:${midi}`);
+  }
+  // 端の小節は取りこぼしがあるので落とす
+  const keys = [...bars.keys()].sort((a, b) => a - b).slice(1, -1);
+  expect(keys.length).toBeGreaterThan(4);
+  const sigs = keys.map(k => bars.get(k).sort().join(','));
+
+  // 隣り合う小節が同じである組が多数を占めること。
+  // オカズの小節とその次、和音が変わる小節では変わってよいので、そのぶんは見込む
+  let same = 0;
+  for (let i = 1; i < sigs.length; i++) if (sigs[i] === sigs[i - 1]) same++;
+  expect(same / (sigs.length - 1)).toBeGreaterThan(0.6);
 });

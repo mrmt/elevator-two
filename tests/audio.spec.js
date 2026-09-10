@@ -38,7 +38,7 @@ test('音の予約が16分のグリッドに乗る', async ({ page }) => {
   await page.goto('/index.html');
   // 曙 (daybreak) は素直な4つ打ちのシーン。
   // グリッチは32分に置き直す仕掛けなので、定義からしてこの格子には乗らない。切っておく
-  await page.locator('.scenebtn').nth(10).click();
+  await page.locator('.scenebtn').nth(11).click();
   await page.locator('#s_glitch').fill('0');
   await page.locator('#play').click();
   await page.waitForTimeout(1500);
@@ -78,7 +78,7 @@ test('重さを上げると低域が増える', async ({ page }) => {
   // 曙 (daybreak) はベースが16分で動くシーン。
   // 「押し出し」の効きはマスターのコンプに均されて測りにくいので、
   // ベースとキックの量そのものを動かす「重さ」で見る
-  await page.locator('.scenebtn').nth(10).click();
+  await page.locator('.scenebtn').nth(11).click();
   // スライダーの値は推移時間をかけて効くので、待ち時間ぶんで届くまで短くしておく
   await page.locator('#s_glide').fill('3');
   await page.locator('#play').click();
@@ -131,7 +131,7 @@ test('ベースが和音のルート音を基本にする', async ({ page }) => 
   });
   await page.goto('/index.html');
   // 曙 (daybreak) は和音が8小節ごとに動くシーン。観測の間は同じ和音が続く
-  await page.locator('.scenebtn').nth(10).click();
+  await page.locator('.scenebtn').nth(11).click();
   await page.locator('#play').click();
   await page.waitForTimeout(1200);
 
@@ -176,7 +176,7 @@ test('並びが切り替わる前の小節にオカズが入る', async ({ page 
     };
   });
   await page.goto('/index.html');
-  await page.locator('.scenebtn').nth(10).click();   // 曙 daybreak
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak
   await page.locator('#s_bpm').fill('140');
   await page.locator('#play').click();
   await page.waitForTimeout(1200);

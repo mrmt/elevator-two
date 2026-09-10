@@ -376,6 +376,7 @@ ja:{
   'phrase.plateau':'定常','phrase.build':'積み上げ','phrase.break':'ブレイク','phrase.drop':'戻し','phrase.dubout':'ディレイ',
   'event.sweep':'フィルタスイープ','event.masterfilter':'全体フィルタ','event.hatdrop':'ハット抜き',
   'event.kickdrop':'キック抜き','event.glitch':'グリッチ','event.feedback':'ディレイ跳ね上げ','event.reverse':'逆再生',
+  'event.phaser':'フェーザー','event.leadsweep':'シーケンス掃引',
   'scene.submerge.name':'潜行','scene.submerge.desc':'最深部。キック・サブベース・スタブのみ。ディレイは発振寸前',
   'scene.moss.name':'苔','scene.moss.desc':'中域のノイズパーカッションが増える。ディレイ局面が最も頻出',
   'scene.drowse.name':'微睡','scene.drowse.desc':'最も遅い。ゆるいii-V。エレピが主役',
@@ -383,11 +384,11 @@ ja:{
   'scene.pulse.name':'鼓動','scene.pulse.desc':'キック強め。ベースのフィルタが大きくうねる。陰だが体は動く',
   'scene.glass.name':'硝子','scene.glass.desc':'テンション和音を短く刺す。ジャズとdubの中間',
   'scene.dusk.name':'夕暮','scene.dusk.desc':'maj9とボサ的シンコペ。彩りが主役を張る',
+  'scene.gear.name':'歯車','scene.gear.desc':'機械的で硬いエレクトロ。裏で細かく噛み合う',
   'scene.bounce.name':'跳躍','scene.bounce.desc':'808のシンコペ、ベース主導。持続和音は薄く敷くだけ',
   'scene.steel.name':'鋼','scene.steel.desc':'硬質なエレクトロ。グリッチ多め',
-  'scene.vista.name':'遠望','scene.vista.desc':'ゆっくり積む。層が薄く広い。陽の入口',
+  'scene.spark.name':'火花','scene.spark.desc':'速く明るいファンク。積んでは戻すのを繰り返す',
   'scene.daybreak.name':'曙','scene.daybreak.desc':'add9の持続。レイヤー累積の基本形。最も素直な高揚',
-  'scene.shimmer.name':'陽炎','scene.shimmer.desc':'高域のリフ主体。フィルタが揺れ続ける',
   'scene.dash.name':'疾走','scene.dash.desc':'最速。アルペジオ主体で累積が速い',
   'scene.jubilee.name':'祝祭','scene.jubilee.desc':'天井まで積んで戻すのを繰り返す。最も派手',
 },
@@ -422,6 +423,7 @@ en:{
   'phrase.plateau':'plateau','phrase.build':'build','phrase.break':'break','phrase.drop':'drop','phrase.dubout':'dub out',
   'event.sweep':'filter sweep','event.masterfilter':'master filter','event.hatdrop':'hats out',
   'event.kickdrop':'kick out','event.glitch':'glitch','event.feedback':'delay surge','event.reverse':'reverse',
+  'event.phaser':'phaser','event.leadsweep':'seq sweep',
   'scene.submerge.name':'submerge','scene.submerge.desc':'The deepest point. Kick, sub bass and stabs only; delay near self-oscillation.',
   'scene.moss.name':'moss','scene.moss.desc':'Mid-range noise percussion comes in. Dub-out phrases appear most often here.',
   'scene.drowse.name':'drowse','scene.drowse.desc':'The slowest scene. Loose ii-V, electric piano out front.',
@@ -429,11 +431,11 @@ en:{
   'scene.pulse.name':'pulse','scene.pulse.desc':'Stronger kick, bass filter sweeping wide. Yin, but it moves.',
   'scene.glass.name':'glass','scene.glass.desc':'Short tension chords, stabbed. Halfway between jazz and dub.',
   'scene.dusk.name':'dusk','scene.dusk.desc':'maj9 chords and bossa syncopation. Colour takes the lead.',
+  'scene.gear.name':'gear','scene.gear.desc':'Mechanical, hard-edged electro that interlocks underneath.',
   'scene.bounce.name':'bounce','scene.bounce.desc':'808 syncopation, bass driven. Sustained chords stay in the background.',
   'scene.steel.name':'steel','scene.steel.desc':'Hard-edged electro with plenty of glitch.',
-  'scene.vista.name':'vista','scene.vista.desc':'Builds slowly. Thin and wide. The doorway into yang.',
+  'scene.spark.name':'spark','scene.spark.desc':'Fast and bright funk, stacking and dropping over and over.',
   'scene.daybreak.name':'daybreak','scene.daybreak.desc':'Sustained add9 chords. The plain form of layer accumulation.',
-  'scene.shimmer.name':'shimmer','scene.shimmer.desc':'Driven by a high riff, with the filter always moving.',
   'scene.dash.name':'dash','scene.dash.desc':'The fastest scene. Arpeggio led, accumulating quickly.',
   'scene.jubilee.name':'jubilee','scene.jubilee.desc':'Stacks to the ceiling and drops, over and over. The showiest scene.',
 },
@@ -500,12 +502,12 @@ const SCENES = [
   {id:'glass',    group:'jazz',    yy:0.38, bpm:125, kit:'hard',    hatK:9,  glitch:.40, w:{plateau:4,build:2,break:2,drop:1,dubout:4}},
   {id:'dusk',     group:'jazz',    yy:0.45, bpm:122, kit:'warm',    hatK:7,  glitch:.15, w:{plateau:5,build:3,break:2,drop:1,dubout:2}},
   // --- electro funk ---
+  {id:'gear',     group:'funk',    yy:0.50, bpm:121, kit:'hard',    hatK:11, glitch:.55, w:{plateau:3,build:3,break:2,drop:3,dubout:1}},
   {id:'bounce',   group:'funk',    yy:0.55, bpm:123, kit:'electro', hatK:9,  glitch:.40, w:{plateau:2,build:4,break:2,drop:4,dubout:1}},
   {id:'steel',    group:'funk',    yy:0.62, bpm:127, kit:'electro', hatK:11, glitch:.70, w:{plateau:2,build:4,break:3,drop:4,dubout:1}},
+  {id:'spark',    group:'funk',    yy:0.72, bpm:129, kit:'electro', hatK:7,  glitch:.40, w:{plateau:2,build:5,break:2,drop:5,dubout:0}},
   // --- 持続回路 / 陽 ---
-  {id:'vista',    group:'sustain', yy:0.70, bpm:124, kit:'warm',    hatK:5,  glitch:.15, w:{plateau:4,build:5,break:1,drop:2,dubout:1}},
-  {id:'daybreak', group:'sustain', yy:0.78, bpm:126, kit:'warm',    hatK:7,  glitch:.15, w:{plateau:3,build:6,break:1,drop:4,dubout:1}},
-  {id:'shimmer',  group:'sustain', yy:0.85, bpm:128, kit:'hard',    hatK:9,  glitch:.40, w:{plateau:4,build:5,break:1,drop:3,dubout:1}},
+  {id:'daybreak', group:'sustain', yy:0.80, bpm:126, kit:'warm',    hatK:7,  glitch:.15, w:{plateau:3,build:6,break:1,drop:4,dubout:1}},
   {id:'dash',     group:'sustain', yy:0.93, bpm:132, kit:'electro', hatK:11, glitch:.40, w:{plateau:2,build:6,break:1,drop:5,dubout:0}},
   {id:'jubilee',  group:'sustain', yy:1.00, bpm:130, kit:'electro', hatK:9,  glitch:.15, w:{plateau:2,build:7,break:1,drop:6,dubout:0}},
 ];
@@ -521,6 +523,8 @@ const EVENTS = [
   {id:'glitch',       p:.28, glitchy:true},
   {id:'feedback',     p:.18, glitchy:false},
   {id:'reverse',      p:.14, glitchy:true},
+  {id:'phaser',       p:.22, glitchy:false},
+  {id:'leadsweep',    p:.24, glitchy:false},
 ];
 
 const target={}, current={};
@@ -543,7 +547,8 @@ let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     bassBus=null, bassSum=null, bassPre=null, bassShaper=null, bassLadder=null,
     bassAmp=null, bassComp=null, bassLfo=null, bassReady=false,
     padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
-    leadBus=null, leadDly=null, leadTaps=null,
+    leadBus=null, leadFilt=null, leadDly=null, leadTaps=null,
+    phaserSend=null, phaserWet=null, phaserLfo=null,
     noiseBuf=null, metalBuf=null,
     running=false, ready=false;
 
@@ -784,15 +789,42 @@ function buildHarmony(){
 
   build.harmSends={pad:{rev:pRev,dly:pDly}, stab:{dry:sDry,rev:sRev,dly:sDly}, ep:{rev:eRev,dly:eDly}};
 
+  /* ---- フェーザー (D-28) ----
+     全域通過フィルタを4段重ね、その周波数を LFO で揺らす。
+     原音と足すと、動く谷が周波数軸を上下する。普段は wet が 0 で、
+     第3層イベントの phaser が持ち上げる */
+  phaserSend=ctx.createGain(); phaserSend.gain.value=1;
+  phaserWet=ctx.createGain(); phaserWet.gain.value=0;
+  let node=phaserSend;
+  const stages=[];
+  for(let i=0;i<4;i++){
+    const ap=ctx.createBiquadFilter();
+    ap.type='allpass'; ap.frequency.value=340*Math.pow(2.1,i); ap.Q.value=.7;
+    node.connect(ap); node=ap; stages.push(ap);
+  }
+  node.connect(phaserWet).connect(mixFilter);
+  const plfo=ctx.createOscillator(), pdep=ctx.createGain();
+  plfo.type='sine'; plfo.frequency.value=.25; pdep.gain.value=0;
+  for(const ap of stages) pdep.connect(ap.frequency);
+  plfo.connect(pdep); plfo.start();
+  phaserLfo={osc:plfo, depth:pdep, stages};
+  drumMix.connect(phaserSend);   // ドラムも通す。接続はフェーザーができてから行う
+
   // ---- 16分のシーケンス (D-21) ----
   // 盛り上げるときのために、本線とは別のステレオディレイを持たせる。
   // 左右で16分3つと5つ、返しを互いに送り合うので像が左右に開いていく
   leadBus=ctx.createGain(); leadBus.gain.value=0;
-  leadBus.connect(dry);
-  const lRev=ctx.createGain(); lRev.gain.value=.18; leadBus.connect(lRev).connect(revSend);
+  // シーケンス全体にかかるフィルタ。小節をまたぐ上げ下げと、
+  // レゾナンスを上げての発振はここで作る (D-29)
+  leadFilt=ctx.createBiquadFilter();
+  leadFilt.type='lowpass'; leadFilt.frequency.value=6000; leadFilt.Q.value=1;
+  leadBus.connect(leadFilt);
+  leadFilt.connect(dry);
+  leadFilt.connect(phaserSend);
+  const lRev=ctx.createGain(); lRev.gain.value=.18; leadFilt.connect(lRev).connect(revSend);
 
   leadDly=ctx.createGain(); leadDly.gain.value=0;
-  leadBus.connect(leadDly);
+  leadFilt.connect(leadDly);
   const mkPing=(pan)=>{
     const d=ctx.createDelay(4), fb=ctx.createGain(), lp=ctx.createBiquadFilter(),
           pn=ctx.createStereoPanner(), o=ctx.createGain();
@@ -1024,13 +1056,19 @@ function bassNote(time,midi,durSec,vel,accent){
   for(const o of oscs) disposeAt(o,t+durSec+.12);
   disposeAt(sg,t+durSec+.12);
 
-  // 振幅。立ち上がりは速く、切れ際だけ少し丸める
+  // 振幅。持続する音と、ディケイだけのタイトな音の2通りを持つ (D-25)
   const g=bassAmp.gain;
   g.cancelScheduledValues(t);
   g.setValueAtTime(Math.max(g.value,.0001),t);
-  g.linearRampToValueAtTime(vel*.9,t+.006);
-  g.setValueAtTime(vel*.9,t+durSec*.8);
-  g.linearRampToValueAtTime(.0001,t+durSec);
+  g.linearRampToValueAtTime(vel*.9,t+.005);
+  if(bassTight){
+    // サスティンを持たず、短いディケイだけで落とす。リリースもほぼ無い
+    const dec=Math.min(durSec*.55,.13);
+    g.exponentialRampToValueAtTime(.0001,t+dec);
+  }else{
+    g.setValueAtTime(vel*.9,t+durSec*.8);
+    g.linearRampToValueAtTime(.0001,t+durSec);
+  }
 
   // フィルタ包絡。1音ごとにカットオフを叩いて戻す。アクセントで深さが変わる
   // フィルタ包絡。頭を大きく開けてから短い時間で閉じる。
@@ -1042,6 +1080,11 @@ function bassNote(time,midi,durSec,vel,accent){
   cp.exponentialRampToValueAtTime(Math.max(60,base),t+Math.min(durSec*.45,.16));
 }
 
+// シーケンスのフィルタの基準値。陽ほど開き、build の局面ではさらに開く
+function leadCutoffBase(){
+  return (1400+current.yy*5200)*(phrase==='build'?1.5:1);
+}
+
 // カットオフの基準値。陰は低く閉じ、陽は高く開く
 function bassCutoffBase(){
   const yy=current.yy, w=current.weight;
@@ -1051,6 +1094,10 @@ function bassCutoffBase(){
 /* ---- 持続回路の発音 (D-9) ----
    4層を持ち、下2層は和音が変わるたびに組み直す持続音、
    上2層はアルペジオと高域リフで、打点ごとに鳴らす */
+// ベースの音色。シーンに入るたびに引き直す。
+// true なら、サスティンを持たずディケイだけで落ちるタイトな音になる (D-25)
+let bassTight=false;
+
 let padVoices=[];
 function padRebuild(time){
   if(!padLayer.length) return;
@@ -1138,6 +1185,15 @@ function epNote(time,midi,vel,dec){
   pn.pan.value=rand(-.4,.4);
   car.connect(g).connect(pn).connect(epBus);
   for(const n of [car,m1,m2]){ n.start(time); n.stop(time+dec+.06); }
+
+  // 1オクターブ下の矩形波を薄く重ねて厚みを出す (D-27)
+  const sub=ctx.createOscillator(), sf=ctx.createBiquadFilter(), sg=ctx.createGain();
+  sub.type='square'; sub.frequency.value=f/2;
+  sf.type='lowpass'; sf.frequency.value=Math.min(f*2.2,2400); sf.Q.value=.7;
+  decayTo(sg.gain,time,vel*.10,dec*.7,.006);
+  sub.connect(sf).connect(sg).connect(pn);
+  sub.start(time); sub.stop(time+dec+.06);
+  for(const n of [sub,sf,sg]) disposeAt(n,time+dec+.14);
 
   // トーンバーを叩く音。矩形波6基の倍音列をごく短く重ねると硬さが出る
   const tine=ctx.createBufferSource(), tb=ctx.createBiquadFilter(), tg=ctx.createGain();
@@ -1396,6 +1452,11 @@ function apply(){
 
     // 16分のシーケンス。盛り上げる局面ではステレオディレイを深くする (D-21)
     leadBus.gain.setTargetAtTime(phrase==='break'?.08:(.34+c.density*.3),tm,T*2);
+    // フィルタは普段はゆっくり開き気味。イベントが動かしている間は触らない (D-29)
+    if(tm>evLeadUntil){
+      leadFilt.frequency.setTargetAtTime(leadCutoffBase(),tm,T*4);
+      leadFilt.Q.setTargetAtTime(1,tm,T*2);
+    }
     const lift = phrase==='build' ? .55 : phrase==='drop' ? .40 : phrase==='dubout' ? .30 : .10;
     leadDly.gain.setTargetAtTime(lift*(.5+c.space*.9),tm,T*3);
     const sd2=stepDur();
@@ -1481,6 +1542,8 @@ function enterScene(idx,{manual=false,keepKey=false}={}){
   if(!keepKey) moveKey();   // キーはシーンごとに五度圏で近い調へ移る (D-9)
   reseedPattern();    // 並びも引き直す。前のシーンの模様を持ち越さない
   pickProg();         // 回路が変わるので和音の進行も選び直す
+  // 陽と electro funk では刻む音になりやすく、陰では持続する音になりやすい
+  bassTight = Math.random() < (SCENES[idx].yy*.5 + (SCENES[idx].group==='funk'?.35:.05));
   chordAt=-999;       // 次の小節で必ず和音を組み直す
   sceneStartBar=barCount;
   sceneBars=sceneLengthBars();
@@ -1503,8 +1566,9 @@ function yyToWavePos(yy){
 
 /* ---- 第2層 フレーズ (16小節) ---- */
 const PHRASE_BARS=16;
-const TRANSITION_BARS=8;   // 遷移に充てるブレイクの長さ (D-5 方式1)
-let phrase='plateau', phraseStartBar=0;
+const BREAK_BARS=1;        // ブレイクは長くて1小節。それ以上続けると間延びする (D-24)
+const TRANSITION_BARS=8;   // 遷移に充てる長さ (D-5 方式1)。ブレイクになるのは最後の1小節だけ
+let phrase='plateau', phraseStartBar=0, phraseLen=PHRASE_BARS;
 
 function choosePhrase(){
   const w=SCENES[sceneIdx].w;
@@ -1522,6 +1586,7 @@ function nextPhrase(){
   if(prev==='build' && p==='build' && Math.random()<.6) p='drop';
   if(prev==='break' && p==='break') p='drop';
   phrase=p; phraseStartBar=barCount;
+  phraseLen = p==='break' ? BREAK_BARS : PHRASE_BARS;   // ブレイクだけは1小節で抜ける
   reseedPattern();
   // ジャズ / ボッサ回路は主役シーンだけでなく、他のシーンへも短く差し込む (D-9)
   epGuest = circuit()!=='jazz' && phrase!=='break' && Math.random()<.18;
@@ -1623,10 +1688,15 @@ const BASS_GRIDS={
    ルート音を鳴らすのが基本で、5度がそれに次ぐ (D-17)。
    ときどき音階側の音へ逸れるが、それは例外として扱う */
 const CHORD_DEG_W=[6,1.4,3,1.2,1,1];
+// 明るい響きの品質。ベースの動き方をここで分ける (D-26)
+const BRIGHT_QUAL=['maj9','add9','sus2','x13'];
 const OFF_CHORD_P=.12;   // 和音から逸れる確率
 
 function bassBar(bar,R,kickPat,scIdx,phr){
-  const sc=SCENES[scIdx], yy=current.yy, d=current.density;
+  const sc=SCENES[scIdx];
+  // 陰陽と密度は少しずつ動き続けるので、そのまま判定に使うと小節ごとに旋律が変わる。
+  // 0.1 刻みに丸めて、値がひと目盛り動くまでは同じ旋律を保つ (D-30)
+  const yy=Math.round(current.yy*10)/10, d=Math.round(current.density*10)/10;
   const sl=scale();
   const out=new Array(16).fill(null);
   if(phr==='break') return out;   // ブレイクではベースも抜く
@@ -1660,8 +1730,11 @@ function bassBar(bar,R,kickPat,scIdx,phr){
       if(r<=0){ alt=iv[k]%12; break; }   // 9th などは1オクターブ下げて低音域に置く
     }
   }
-  // ルートから離れる頻度。陰では動かず、陽と funk で少し動く
-  const moveP=clamp(.10+yy*.18+(sc.group==='funk'?.12:0));
+  // ルートから離れる頻度。陰では動かず、陽と funk で少し動く。
+  // さらに、明るい和音では動かさず、暗い和音では動かす (D-26)。
+  // 明るい響きはルートを踏み続けたほうが伸びるが、暗い響きは動いたほうが陰影が出る
+  const bright=BRIGHT_QUAL.includes(chordQual);
+  const moveP=clamp((.10+yy*.18+(sc.group==='funk'?.12:0))*(bright?.45:1.5));
   const lastHit=hits[hits.length-1];
 
   for(let n=0;n<hits.length;n++){
@@ -1685,7 +1758,7 @@ function bassBar(bar,R,kickPat,scIdx,phr){
 /* 小節ぶんの並びを作る。
    どのシーンとして作るかを引数で受けるので、DJ ミックス風の遷移 (D-5 方式3) では
    旧シーンと新シーンの2つ分を同じ小節に対して作れる */
-function buildBar(bar,scIdx,phr,seed){
+function buildBar(bar,scIdx,phr,seed,fillBar){
   const sc=SCENES[scIdx], d=current.density;
   const funk = sc.group==='funk';
   const quiet = phr==='break', dub = phr==='dubout';
@@ -1759,8 +1832,12 @@ function buildBar(bar,scIdx,phr,seed){
   }
   out.rim=rm;
 
-  // --- ベース
-  out.bass=bassBar(bar,R,k,scIdx,phr);
+  /* --- ベース ---
+     小節ごとに引き直さない。種が変わるまでは同じ旋律が続くので、
+     少なくとも2小節、実際にはフレーズのあいだ同じ形が繰り返される (D-30)。
+     オカズの小節だけは例外で、そこは動いてよい */
+  const Rb=rng(seed+4242+(fillBar?bar*97:0));
+  out.bass=bassBar(bar,Rb,k,scIdx,phr);
 
   // --- ハーモニー。鳴らす回路はシーンが決める (D-8)
   const cir=sc.group;
@@ -1846,7 +1923,8 @@ function makeFill(bar){
 function regenerate(bar){
   // 変異 (D-7)。当たったときだけ種を引き直し、それまでは同じ並びを繰り返す
   if(Math.random()<current.mutate*.5) reseedPattern();
-  Object.assign(seq, buildBar(bar,sceneIdx,phrase,patSeed));
+  const fillBar=isFillBar(bar);
+  Object.assign(seq, buildBar(bar,sceneIdx,phrase,patSeed,fillBar));
   seq.fill=new Array(16).fill(null);
   // 音色はときどき差し替える。基本は鋸波で、たまに別の波形になる
   if(Math.random()<.25) leadType = Math.random()<.5 ? 'sawtooth' : pick(LEAD_TYPES);
@@ -1855,7 +1933,7 @@ function regenerate(bar){
     for(const sp of pendingSpill) seq.fill[sp.i]={v:sp.v, vel:sp.vel, tone:sp.tone};
     pendingSpill=null;
   }
-  if(isFillBar(bar)) makeFill(bar);
+  if(fillBar) makeFill(bar);
 }
 
 /* ============================================================
@@ -1863,7 +1941,7 @@ function regenerate(bar){
    maybeEvent() が選んだ仕掛けを、実際に音へ効かせる。
    小節をまたぐものは「いつまで効いているか」を音声時計で持つ。
    ============================================================ */
-let evFilterUntil=0, evMasterUntil=0, evDelayUntil=0;
+let evFilterUntil=0, evMasterUntil=0, evDelayUntil=0, evLeadUntil=0;
 let muteHatUntilBar=-1, muteKickUntilBar=-1, glitchBar=-1;
 
 function fireEvent(id,bar,time){
@@ -1899,6 +1977,32 @@ function fireEvent(id,bar,time){
         tap.fb.gain.linearRampToValueAtTime(.4,time+barSec*2);
       }
       evDelayUntil=time+barSec*2;
+      break;
+    }
+    case 'phaser':{
+      // 4小節かけて深さを出し、そのまま引く (D-28)
+      const w=phaserWet.gain, dep=phaserLfo.depth.gain;
+      w.cancelScheduledValues(time);
+      w.setValueAtTime(0,time);
+      w.linearRampToValueAtTime(.55,time+barSec);
+      w.setValueAtTime(.55,time+barSec*3);
+      w.linearRampToValueAtTime(0,time+barSec*4);
+      dep.cancelScheduledValues(time);
+      dep.setValueAtTime(900,time);
+      phaserLfo.osc.frequency.setValueAtTime(rand(.12,.7),time);
+      break;
+    }
+    case 'leadsweep':{
+      // シーケンスのフィルタを上げ下げする。たまにレゾナンスを上げて発振させる (D-29)
+      const f=leadFilt.frequency, q=leadFilt.Q;
+      const ring=Math.random()<.35;
+      f.cancelScheduledValues(time); q.cancelScheduledValues(time);
+      f.setValueAtTime(Math.max(240,leadCutoffBase()*.14),time);
+      f.exponentialRampToValueAtTime(leadCutoffBase(),time+barSec*2);
+      f.exponentialRampToValueAtTime(Math.max(240,leadCutoffBase()*.2),time+barSec*4);
+      q.setValueAtTime(ring?18:6,time);
+      q.linearRampToValueAtTime(1,time+barSec*4);
+      evLeadUntil=time+barSec*4;
       break;
     }
     case 'reverse':{
@@ -2031,8 +2135,8 @@ function startTransition(bar,bars,time,{force=null}={}){
   epGuest=false;
 
   if(transitionMode==='break'){
+    // 乗り換えの直前1小節だけをブレイクにする。それまでは今の並びのまま進む (D-24)
     transitionEndBar=bar+bars;
-    phrase='break'; phraseStartBar=bar;
     reseedPattern();
   }else{
     // 連続変形とミックスはどちらも16小節かける。ブレイクは挟まない
@@ -2091,6 +2195,11 @@ function onBar(bar,time){
   if(pendingScene<0 && bar-sceneStartBar>=sceneBars-TRANSITION_BARS && (bar-phraseStartBar)%8===0){
     startTransition(bar,TRANSITION_BARS,time);
   }
+  // ブレイク方式の遷移では、終わりの1小節だけ音を抜く
+  if(pendingScene>=0 && transitionMode==='break' && bar===transitionEndBar-1 && phrase!=='break'){
+    phrase='break'; phraseStartBar=bar; phraseLen=BREAK_BARS;
+    reseedPattern();
+  }
   if(pendingScene>=0 && bar>=transitionEndBar){
     const nxt=pendingScene, mode=transitionMode;
     pendingScene=-1;
@@ -2102,8 +2211,9 @@ function onBar(bar,time){
   // フレーズは16小節がひと区切り。「展開」を上げると、8小節の折り返しでも
   // 切り替わることがあり、移り変わりが早くなる (D-11)
   const inPhrase=bar-phraseStartBar;
-  const early = inPhrase>=8 && inPhrase%8===0 && Math.random()<current.evolution*.4;
-  if((inPhrase>=PHRASE_BARS || early) && pendingScene<0) nextPhrase();
+  const early = phraseLen>BREAK_BARS && inPhrase>=8 && inPhrase%8===0
+                && Math.random()<current.evolution*.4;
+  if((inPhrase>=phraseLen || early) && pendingScene<0) nextPhrase();
   // 和音を進める。間隔は回路ごとに違い、スタブはほとんど動かない (D-9)
   if(bar-chordAt>=CHORD_BARS[circuit()]){
     // シーンに入った直後は進行の1つ目から始める。そこで進めると頭を飛ばしてしまう
@@ -2114,7 +2224,7 @@ function onBar(bar,time){
   regenerate(bar);
   // DJ ミックス風の遷移では、同じ小節に対して新シーンぶんの並びも作る (D-5 方式3)
   seqB = (pendingScene>=0 && transitionMode==='mix')
-    ? buildBar(bar,pendingScene,'plateau',patSeedB) : null;
+    ? buildBar(bar,pendingScene,'plateau',patSeedB,false) : null;
   if(bar>0 && bar%4===0) maybeEvent(bar,time);   // 開始直後の1小節目にいきなり仕掛けを出さない
   showProgress();
 }
@@ -2538,7 +2648,7 @@ async function startAudio(){
   running=true;
   setPowerUI(true);
   stepIdx=0; barCount=0; nextStepTime=ctx.currentTime+.12;
-  phraseStartBar=0; sceneStartBar=0;
+  phraseStartBar=0; sceneStartBar=0; phraseLen=PHRASE_BARS;
   sceneBars=sceneLengthBars();
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1;
   pendingScene=-1; transitionEndBar=-1; seqB=null;
@@ -2557,6 +2667,8 @@ function stopAudio(){
   setPowerUI(false);
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
   pendingScene=-1; transitionEndBar=-1; seqB=null; pendingSpill=null;
+  evLeadUntil=0;
+  if(phaserWet){ phaserWet.gain.cancelScheduledValues(ctx.currentTime); phaserWet.gain.setValueAtTime(0,ctx.currentTime); }
   if(drumMixB) endMixFades(ctx.currentTime);
   flushSteps();
   uiStep=-1; renderSteps();
