@@ -297,3 +297,37 @@ test('持続のシーンでは連打にならない', async ({ page }) => {
   await expect(page.locator('#pchord')).toContainText('持続');
   await expect(page.locator('#pchord')).not.toContainText('連打');
 });
+
+test('XYパッドの背景に波形が出る', async ({ page }) => {
+  // D-36。出力から分岐した AnalyserNode を作り、その波形を canvas に描く
+  await page.addInitScript(() => {
+    window.__analysers = 0;
+    const orig = AudioContext.prototype.createAnalyser;
+    AudioContext.prototype.createAnalyser = function () {
+      window.__analysers++;
+      return orig.call(this);
+    };
+  });
+  await page.goto('/index.html');
+  expect(await page.evaluate(() => window.__analysers)).toBe(0);
+
+  await page.locator('#play').click();
+  await expect.poll(() => page.evaluate(() => window.__analysers), { timeout: 8000 })
+    .toBeGreaterThan(0);
+
+  // 描いている中身が時間とともに変わる。止めると変わらなくなる
+  const strip = () => page.evaluate(() => {
+    const cv = document.getElementById('cv');
+    const g = cv.getContext('2d');
+    const d = g.getImageData(0, 0, cv.width, 1).data;   // 上端1行では波形は動かない
+    const mid = g.getImageData(0, cv.height >> 1, cv.width, 1).data;
+    let sum = 0;
+    for (let i = 0; i < mid.length; i += 4) sum += mid[i] + mid[i + 1] + mid[i + 2];
+    return sum;
+  });
+  await page.waitForTimeout(1200);
+  const a = await strip();
+  await page.waitForTimeout(700);
+  const b = await strip();
+  expect(a).not.toBe(b);
+});

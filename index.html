@@ -18,6 +18,7 @@
     --ink:#E7E2CE;
     --dim:rgba(214,226,232,.62);
     --amber:#D8A340;
+    --scope:rgba(216,163,64,.7);
     --disp:'Futura','Avenir Next Condensed','Helvetica Neue',sans-serif;
     --data:'Menlo','Monaco',monospace;
   }
@@ -156,7 +157,8 @@
 
   /* ---- pad overlay readout ---- */
   .overlay{
-    position:absolute;inset:0;pointer-events:none;overflow:hidden;
+    /* canvas に z-index を与えてあるので、こちらにも積み順を明示しないと潜る */
+    position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden;
     display:flex;flex-direction:column;justify-content:center;align-items:center;
     gap:clamp(0rem,.7vh,.5rem);padding:.4rem;text-align:center;
     font-family:'Helvetica Neue','Avenir Next','Hiragino Sans',system-ui,sans-serif;
@@ -281,6 +283,170 @@
   @media (prefers-reduced-motion:reduce){
     *{transition:none !important}
   }
+
+  /* ============================================================
+     テーマ (D-37)
+     既定は elevator-one から引き継いだ海の色。
+     以下の3つは色と字面、それに各テーマ固有の作り込みを重ねる。
+     ============================================================ */
+
+  /* ---- TE: ミニマル & インダストリアル ----
+     アルミ削り出しの筐体。等間隔グリッドと極細の罫線、
+     工業用の字面に原色のアクセントを要所だけ */
+  html[data-theme="te"]{
+    --sea-top:#EDECE9; --sea-mid:#E3E2DE; --sea-bot:#D7D6D1;
+    --panel:rgba(20,22,24,.035); --panel-hi:rgba(20,22,24,.08);
+    --line:rgba(20,22,24,.26);
+    --ink:#1B1D1F; --dim:rgba(27,29,31,.58);
+    --amber:#F25C05; --accent2:#FFC400; --accent3:#00A6B8;
+    --disp:'Menlo','Monaco',monospace;
+    --scope:rgba(242,92,5,.85);
+    --pad-a:#CFCEC9; --pad-b:#B9B8B2;
+  }
+  html[data-theme="te"] body{background-image:linear-gradient(180deg,var(--sea-top),var(--sea-bot))}
+  /* 等間隔のグリッド。削り出しの面に引いた罫線に見えるよう、ごく薄く */
+  html[data-theme="te"] section{
+    background:
+      repeating-linear-gradient(0deg,transparent 0 23px,rgba(20,22,24,.045) 23px 24px),
+      repeating-linear-gradient(90deg,transparent 0 23px,rgba(20,22,24,.045) 23px 24px),
+      rgba(255,255,255,.42);
+  }
+  html[data-theme="te"] header,
+  html[data-theme="te"] footer{background:rgba(255,255,255,.5)}
+  html[data-theme="te"] .eyebrow{
+    color:var(--ink);border-bottom:1px solid var(--line);padding-bottom:.25rem;
+    font-weight:600;
+  }
+  /* 液晶風。表示部だけ階調を落とした面にして、細い横縞を掛ける */
+  html[data-theme="te"] .prog,
+  html[data-theme="te"] .overlay{
+    background-image:repeating-linear-gradient(0deg,rgba(20,22,24,.05) 0 1px,transparent 1px 3px);
+  }
+  html[data-theme="te"] .prog{
+    background-color:rgba(180,186,176,.5);border:1px solid var(--line);padding:.3rem .4rem;
+  }
+  html[data-theme="te"] .prog b{color:#12240E}
+  html[data-theme="te"] .prog .ev{color:var(--amber)}
+  html[data-theme="te"] .overlay b{color:rgba(27,29,31,.34)}
+  html[data-theme="te"] .overlay .k{color:rgba(27,29,31,.42)}
+  html[data-theme="te"] .steps i{background:rgba(20,22,24,.16)}
+  html[data-theme="te"] .steps i.hat{background:var(--accent3)}
+  html[data-theme="te"] .steps i.on{background:var(--accent2)}
+  html[data-theme="te"] .steps i.now{background:var(--amber);box-shadow:none}
+  html[data-theme="te"] .toggle[aria-pressed="true"] .lamp{background:var(--amber);box-shadow:none}
+  html[data-theme="te"] input[type=range]::-webkit-slider-thumb{background:var(--ink)}
+  html[data-theme="te"] input[type=range]:hover::-webkit-slider-thumb{background:var(--amber)}
+  html[data-theme="te"] .scenebtn[aria-pressed="true"]{color:var(--amber);border-left-color:var(--amber)}
+  html[data-theme="te"] #tip{background:#F2F1EE;color:var(--ink)}
+  html[data-theme="te"] .vcap{color:rgba(27,29,31,.7);text-shadow:0 1px 6px rgba(255,255,255,.8)}
+
+  /* ---- EK: ダーク & サイバネティクス ----
+     漆黒の筐体に単色の高輝度表示。16個のキースイッチ、
+     シルク印刷のように囲まれた機能ブロック */
+  html[data-theme="ek"]{
+    --sea-top:#0A0A0B; --sea-mid:#08080A; --sea-bot:#050506;
+    --panel:rgba(255,255,255,.045); --panel-hi:rgba(255,255,255,.1);
+    --line:rgba(255,255,255,.16);
+    --ink:#F4F4EE; --dim:rgba(244,244,238,.5);
+    --amber:#FFE20A; --accent2:#FFE20A; --accent3:#FFFFFF;
+    --disp:'Helvetica Neue','Arial Narrow',sans-serif;
+    --scope:rgba(255,226,10,.9);
+    --pad-a:#0C0C0E; --pad-b:#000000;
+  }
+  html[data-theme="ek"] body{background-image:none;background:#08080A}
+  html[data-theme="ek"] header,
+  html[data-theme="ek"] footer{background:#0B0B0D}
+  /* パネルのシルク印刷。各セクションを独立したモジュールとして細い線で囲む */
+  html[data-theme="ek"] section{background:#0B0B0D;padding:.7rem .8rem .9rem}
+  html[data-theme="ek"] section>.eyebrow{
+    border:1px solid var(--line);border-left:3px solid var(--amber);
+    padding:.22rem .4rem;font-weight:700;letter-spacing:.24em;color:var(--ink);
+  }
+  html[data-theme="ek"] .seqhead .eyebrow{border:1px solid var(--line);border-left:3px solid var(--amber);padding:.22rem .4rem}
+  html[data-theme="ek"] #params,
+  html[data-theme="ek"] #clockparams,
+  html[data-theme="ek"] #scenes,
+  html[data-theme="ek"] .prog{
+    border:1px solid var(--line);padding:.5rem .55rem;margin-top:.5rem;
+  }
+  /* 16個の正方形キースイッチ。点いている位置はバックライト風に光る */
+  html[data-theme="ek"] .steps{
+    height:auto;gap:3px;border-bottom:none;padding:2px 0;align-items:stretch;
+  }
+  html[data-theme="ek"] .steps i{
+    height:18px !important;border-radius:2px;
+    background:#141416;border:1px solid rgba(255,255,255,.13);
+  }
+  html[data-theme="ek"] .steps i.hat{background:#1D2226}
+  html[data-theme="ek"] .steps i.on{background:#2A2A16;border-color:rgba(255,226,10,.4)}
+  html[data-theme="ek"] .steps i.now{
+    background:var(--amber);border-color:var(--amber);
+    box-shadow:0 0 10px rgba(255,226,10,.75),inset 0 0 6px rgba(255,255,255,.5);
+  }
+  html[data-theme="ek"] .lamp{border-radius:2px;width:9px;height:9px}
+  html[data-theme="ek"] .toggle[aria-pressed="true"] .lamp{box-shadow:0 0 9px var(--amber)}
+  html[data-theme="ek"] input[type=range]::-webkit-slider-thumb{background:var(--amber);width:7px;height:16px;margin-top:-8px}
+  html[data-theme="ek"] .tbtn[data-on="1"]{background:var(--amber);color:#08080A}
+  html[data-theme="ek"] .overlay b{color:rgba(244,244,238,.30)}
+  html[data-theme="ek"] .scene{color:var(--amber)}
+  html[data-theme="ek"] #tip{background:#101012}
+
+  /* ---- ER: パッチング & シグナルフロー ----
+     ブロック間をパッチケーブルで結び、ボタンはジャックの形にする。
+     背景にはシルク印刷風の幾何学模様を薄く敷く */
+  html[data-theme="er"]{
+    --sea-top:#25211D; --sea-mid:#1F1C18; --sea-bot:#171512;
+    --panel:rgba(255,255,255,.05); --panel-hi:rgba(255,255,255,.1);
+    --line:rgba(237,230,218,.2);
+    --ink:#EDE6DA; --dim:rgba(237,230,218,.58);
+    --amber:#D2552F; --accent2:#6FA0B5; --accent3:#E0B44A;
+    --disp:'Futura','Avenir Next','Helvetica Neue',sans-serif;
+    --scope:rgba(111,160,181,.85);
+    --pad-a:#221E1A; --pad-b:#15130F;
+  }
+  html[data-theme="er"] section{
+    background:
+      radial-gradient(circle at 18% 12%, rgba(237,230,218,.05) 0 1px, transparent 1.5px),
+      radial-gradient(circle at 78% 62%, rgba(237,230,218,.05) 0 1px, transparent 1.5px),
+      repeating-radial-gradient(circle at 110% -10%, transparent 0 38px, rgba(237,230,218,.035) 38px 39px),
+      rgba(0,0,0,.24);
+  }
+  /* ケーブルを描く層。ER のときだけ出す */
+  #cables{position:absolute;inset:0;pointer-events:none;z-index:5;display:none}
+  html[data-theme="er"] #cables{display:block}
+  main{position:relative}
+  /* 入出力端子。丸い座金に穴が開いているように見せる */
+  html[data-theme="er"] .tbtn.xport{
+    border-radius:50%;background:radial-gradient(circle at 50% 45%, #101010 0 38%, #4A433C 39% 60%, #2A2621 61% 100%);
+    border:1px solid rgba(237,230,218,.3);
+  }
+  html[data-theme="er"] .tbtn.xport[data-on="1"]{
+    background:radial-gradient(circle at 50% 45%, #1A1207 0 38%, var(--amber) 39% 62%, #7A3218 63% 100%);
+    border-color:var(--amber);color:#1A1207;
+  }
+  html[data-theme="er"] .lamp{
+    border-radius:50%;width:11px;height:11px;
+    background:radial-gradient(circle at 50% 45%, #0C0B09 0 42%, #4A433C 43% 100%);
+  }
+  html[data-theme="er"] .toggle[aria-pressed="true"] .lamp{
+    background:radial-gradient(circle at 50% 45%, #0C0B09 0 42%, var(--amber) 43% 100%);
+    box-shadow:0 0 8px rgba(210,85,47,.6);
+  }
+  html[data-theme="er"] .toggle{border-radius:3px}
+  html[data-theme="er"] .steps i.on{background:var(--accent3)}
+  html[data-theme="er"] .steps i.hat{background:var(--accent2)}
+  html[data-theme="er"] .steps i.now{background:var(--amber);box-shadow:0 0 7px rgba(210,85,47,.7)}
+  html[data-theme="er"] .scenebtn[aria-pressed="true"]{border-left-color:var(--amber);color:var(--accent3)}
+
+  /* ---- テーマの選択 ---- */
+  #themes{display:flex;gap:.3rem;margin-bottom:.2rem}
+  .themebtn{
+    flex:1;border:1px solid var(--line);background:var(--panel);
+    font-size:.62rem;letter-spacing:.16em;padding:.32rem 0;color:var(--dim);
+    transition:color .16s,background .16s,border-color .16s;
+  }
+  .themebtn:hover{color:var(--ink);background:var(--panel-hi)}
+  .themebtn[aria-pressed="true"]{color:var(--amber);border-color:var(--amber)}
 </style>
 </head>
 <body>
@@ -305,6 +471,8 @@
 </nav>
 
 <main id="main" data-tab="pad">
+  <!-- ER のときだけ出る。ブロック間を結ぶパッチケーブル -->
+  <svg id="cables" aria-hidden="true"></svg>
   <section id="tab-scene">
     <div class="eyebrow" data-i18n="section.scene">シーン</div>
     <!-- 今のシーンを打ち切って次へ進む。波は進むので、行き先は陰陽の位置が決める -->
@@ -345,7 +513,10 @@
   </section>
 
   <section id="tab-sound">
-    <div class="eyebrow" data-i18n="section.params">パラメータ</div>
+    <div class="eyebrow" data-i18n="section.theme">見た目</div>
+    <div id="themes"></div>
+    <div class="seqhead"><div class="eyebrow" style="margin:0" data-i18n="section.params">パラメータ</div></div>
+    <div style="margin-top:.8rem"></div>
     <div id="params"></div>
     <div class="seqhead"><div class="eyebrow" style="margin:0" data-i18n="section.clock">クロック</div></div>
     <div id="clockparams" style="margin-top:.8rem"></div>
@@ -382,7 +553,12 @@ ja:{
   'tip.next':'いまのシーンを打ち切って次へ進む',
   'tab.scene':'シーン','tab.pad':'XYパッド','tab.sound':'音作り',
   'section.scene':'シーン','section.next':'次へ','section.pad':'XYパッド — ドラッグで目標を移動',
-  'section.params':'パラメータ','section.clock':'クロック','section.bg':'背景',
+  'section.params':'パラメータ','section.clock':'クロック','section.bg':'背景','section.theme':'見た目',
+  'theme.sea':'既定','theme.te':'TE','theme.ek':'EK','theme.er':'ER',
+  'tip.theme.sea':'elevator-one から引き継いだ海の色',
+  'tip.theme.te':'ミニマル & インダストリアル。アルミ削り出しの面に等間隔グリッドと原色のアクセント',
+  'tip.theme.ek':'ダーク & サイバネティクス。漆黒の筐体、16個のキースイッチ、囲まれた機能ブロック',
+  'tip.theme.er':'パッチング & シグナルフロー。ブロック間をケーブルで結び、ボタンはジャックの形',
   'param.bgvideo':'動画を流す','param.ytkey':'YouTube APIキー',
   'tip.bgvideo':'XYパッドの背景に、いまのシーンの英語名で探した動画を音無しで流す。4小節ごとに差し替わる',
   'tip.ytkey':'YouTube Data API のキー。ブラウザにだけ保存され、外部へは送らない。空にすると動画は止まる',
@@ -438,7 +614,12 @@ en:{
   'tip.next':'Cut the current scene short and move to the next one',
   'tab.scene':'scene','tab.pad':'XY pad','tab.sound':'sound',
   'section.scene':'scene','section.next':'next','section.pad':'XY pad — drag to move the target',
-  'section.params':'parameters','section.clock':'clock','section.bg':'background',
+  'section.params':'parameters','section.clock':'clock','section.bg':'background','section.theme':'look',
+  'theme.sea':'default','theme.te':'TE','theme.ek':'EK','theme.er':'ER',
+  'tip.theme.sea':'The sea palette inherited from elevator-one',
+  'tip.theme.te':'Minimal & industrial. Machined aluminium, an even grid, primary-colour accents.',
+  'tip.theme.ek':'Dark & cybernetic. Black chassis, sixteen key switches, blocks boxed like silkscreen.',
+  'tip.theme.er':'Patching & signal flow. Blocks joined by cables, buttons shaped like jacks.',
   'param.bgvideo':'video','param.ytkey':'YouTube API key',
   'tip.bgvideo':'Plays muted video behind the XY pad, found by the current scene name. Swaps every 4 bars.',
   'tip.ytkey':'Your YouTube Data API key. Stored in this browser only; never sent anywhere else. Clear it to stop the video.',
@@ -593,6 +774,7 @@ let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後�
    進行 (シーン / フレーズ / イベント) が正しく回ることを先に確かめる。
    音を足すときはこの下に音源を作り、playStep() から鳴らす。
    ============================================================ */
+let scope=null, scopeBuf=null;   // XYパッドの背景に出す波形 (D-36)
 let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     mixFilter=null, dry=null, revSend=null, revGain=null, dlySend=null, delayNodes=null,
     drumBus=null, drumSat=null, drumFilter=null, drumMix=null,
@@ -706,6 +888,12 @@ function build(){
   master.connect(comp).connect(makeup).connect(clipPre).connect(clip).connect(ctx.destination);
   streamDest = ctx.createMediaStreamDestination();
   out.connect(streamDest);   // バックグラウンド再生用の <audio> へ流す経路
+
+  // 波形を覗くための分岐。音は通すだけで何も変えない (D-36)
+  scope = ctx.createAnalyser();
+  scope.fftSize=2048; scope.smoothingTimeConstant=0;
+  scopeBuf = new Float32Array(scope.fftSize);
+  out.connect(scope);
 
   // 全体フィルタ。第3層イベントの masterfilter がここを閉じて開く (D-4)
   mixFilter = ctx.createBiquadFilter();
@@ -2452,6 +2640,36 @@ document.getElementById('next').addEventListener('click',e=>{
   setTimeout(()=>b.setAttribute('aria-pressed','false'),260);
 });
 
+/* ---- テーマ (D-37) ---- */
+const THEMES=['sea','te','ek','er'];
+const THEME_STORE='elevator-two:theme';
+let theme='sea', themePad={a:'',b:''};
+try{ const v=localStorage.getItem(THEME_STORE); if(THEMES.includes(v)) theme=v; }catch(_){ }
+
+const themesEl=document.getElementById('themes');
+const themeBtns={};
+for(const id of THEMES){
+  const b=document.createElement('button');
+  b.className='themebtn'; b.setAttribute('aria-pressed','false');
+  b.dataset.i18n=`theme.${id}`; b.dataset.i18nTip=`tip.theme.${id}`;
+  b.addEventListener('click',()=>setTheme(id));
+  themesEl.appendChild(b); themeBtns[id]=b;
+}
+
+function setTheme(id){
+  theme=THEMES.includes(id)?id:'sea';
+  // 既定は属性を付けない。CSS の :root がそのまま効く
+  if(theme==='sea') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.dataset.theme=theme;
+  for(const k of THEMES) themeBtns[k].setAttribute('aria-pressed',String(k===theme));
+  try{ localStorage.setItem(THEME_STORE,theme); }catch(_){ }
+  // パッドの下地はテーマが持つ。毎フレーム読むと重いのでここで拾っておく
+  const cs=getComputedStyle(document.documentElement);
+  themePad={a:cs.getPropertyValue('--pad-a').trim(), b:cs.getPropertyValue('--pad-b').trim()};
+  scopeColorCache=cs.getPropertyValue('--scope').trim();
+  layoutCables();
+}
+
 /* ---- スライダー ---- */
 const paramsEl=document.getElementById('params');
 const clockEl=document.getElementById('clockparams');
@@ -2596,8 +2814,13 @@ function draw(){
     g2.fillRect(0,0,w,h);
   }else{
     const gd=g2.createLinearGradient(0,0,w,h);
-    gd.addColorStop(0, `hsl(${hue(196,398)} ${lerp(34,52,yy)}% ${lerp(11,19,yy)}%)`);
-    gd.addColorStop(1, `hsl(${hue(210,382)} ${lerp(40,44,yy)}% ${lerp(6,11,yy)}%)`);
+    if(themePad.a && themePad.b){
+      // テーマが下地を持つ場合はそれを使う。陰陽は粒と波形の色で示す
+      gd.addColorStop(0,themePad.a); gd.addColorStop(1,themePad.b);
+    }else{
+      gd.addColorStop(0, `hsl(${hue(196,398)} ${lerp(34,52,yy)}% ${lerp(11,19,yy)}%)`);
+      gd.addColorStop(1, `hsl(${hue(210,382)} ${lerp(40,44,yy)}% ${lerp(6,11,yy)}%)`);
+    }
     g2.fillStyle=gd; g2.fillRect(0,0,w,h);
   }
 
@@ -2608,6 +2831,27 @@ function draw(){
   for(const f of flakes){
     f.y-=f.v*(0.4+dn); if(f.y<0){ f.y=h; f.x=Math.random()*w; }
     g2.beginPath(); g2.arc(f.x,f.y,f.r*lerp(1.6,.7,dn),0,6.283); g2.fill();
+  }
+
+  // 波形 (D-36)。いま出ている音をそのまま横に引き伸ばして描く。
+  // 立ち上がりが左端に来るよう、上りのゼロ交差を探して起点にする
+  if(scope && running){
+    scope.getFloatTimeDomainData(scopeBuf);
+    const n=scopeBuf.length;
+    let start=0;
+    for(let i=1;i<n>>1;i++){
+      if(scopeBuf[i-1]<=0 && scopeBuf[i]>0){ start=i; break; }
+    }
+    const span=Math.min(n-start, n>>1);
+    g2.beginPath();
+    for(let x=0;x<w;x++){
+      const v=scopeBuf[start+Math.floor(x/w*span)]||0;
+      const y=h/2 - v*h*.42;
+      x ? g2.lineTo(x,y) : g2.moveTo(x,y);
+    }
+    g2.strokeStyle=scopeColor();
+    g2.lineWidth=1.4;
+    g2.stroke();
   }
 
   // 拍の明滅。無音の段階でも拍が見えるようにしておく
@@ -2879,6 +3123,46 @@ keyEl.addEventListener('change',()=>{
   setVideo(!!ytKey);
 });
 
+// 波形の色。テーマを変えたときに拾い直す
+let scopeColorCache='';
+function scopeColor(){ return scopeColorCache || 'rgba(216,163,64,.7)'; }
+
+/* ---- パッチケーブル (ER のみ) ----
+   セクションの端をジャックに見立て、間をたるんだベジェ曲線で結ぶ */
+const cablesEl=document.getElementById('cables');
+function layoutCables(){
+  if(theme!=='er'){ cablesEl.innerHTML=''; return; }
+  const host=mainEl.getBoundingClientRect();
+  const secs=[...mainEl.querySelectorAll('section')].filter(el=>el.offsetParent!==null);
+  if(secs.length<2){ cablesEl.innerHTML=''; return; }
+  cablesEl.setAttribute('viewBox',`0 0 ${host.width} ${host.height}`);
+  // 端子はブロックの内側に少し入れる。境目の真上に置くと2点が重なり、
+  // ケーブルが細い輪になってしまう
+  const INSET=30;
+  const pt=(r,side,ry)=>({
+    x:(side==='r'?r.right-INSET:r.left+INSET)-host.left,
+    y:r.top-host.top+r.height*ry,
+  });
+  let d='';
+  for(let i=0;i<secs.length-1;i++){
+    // 隣り合うブロックの境目に端子を置き、その間をケーブルがたるんで垂れる形にする。
+    // 高さを揃えないと縦に伸びた線になってしまうので、両端は同じ高さに置く
+    const ry=.16+i*.1;
+    const a=pt(secs[i].getBoundingClientRect(),'r',ry);
+    const b=pt(secs[i+1].getBoundingClientRect(),'l',ry);
+    const sag=78+i*22;
+    // 端子からいったん下へ垂らしてから相手へ向かう。差し込んだケーブルらしくなる
+    d+=`<path d="M${a.x} ${a.y} C ${a.x+8} ${a.y+sag}, ${b.x-8} ${b.y+sag}, ${b.x} ${b.y}"
+          fill="none" stroke="${i%2?'var(--accent2)':'var(--amber)'}" stroke-width="2.6"
+          stroke-linecap="round" opacity=".62"/>`;
+    for(const p of [a,b]){
+      d+=`<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="#0C0B09" stroke="var(--line)" stroke-width="1.4"/>`;
+    }
+  }
+  cablesEl.innerHTML=d;
+}
+window.addEventListener('resize',layoutCables);
+
 /* ---- 読み出し ---- */
 const rYY=document.getElementById('ryy'), rD=document.getElementById('rd'),
       rBPM=document.getElementById('rbpm'), rBar=document.getElementById('rbar');
@@ -3075,6 +3359,7 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
   mainEl.dataset.tab=b.dataset.tab;
   tabBtns.forEach(o=>o.setAttribute('aria-selected',String(o===b)));
   resize(); // display:none 明けの canvas を再計測
+  layoutCables();
 }));
 
 /* ---- ツールチップ ---- */
@@ -3131,6 +3416,7 @@ newWavePeriod();
 enterScene(chooseScene());
 pickProg();
 sceneBars=sceneLengthBars();
+setTheme(theme);
 applyI18n();
 showProgress();
 readout();

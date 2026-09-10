@@ -57,3 +57,40 @@ test('シーンは14種すべて並ぶ', async ({ page, isMobile }) => {
   await expect(page.locator('.scenebtn')).toHaveCount(14);
   await expect(page.locator('#scenes .group')).toHaveCount(4);
 });
+
+test('テーマを切り替えると見た目が変わり、次に開いても保たれる', async ({ page, isMobile }) => {
+  // D-37。4つのテーマがあり、それぞれ背景色が違う
+  if (isMobile) await page.locator('.tab[data-tab="sound"]').click();
+  await expect(page.locator('.themebtn')).toHaveCount(4);
+  await expect(page.locator('.themebtn').first()).toHaveAttribute('aria-pressed', 'true');
+
+  const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const seen = new Set([await bg()]);
+
+  for (const [i, name] of [[1, 'te'], [2, 'ek'], [3, 'er']]) {
+    await page.locator('.themebtn').nth(i).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', name);
+    await expect(page.locator('.themebtn').nth(i)).toHaveAttribute('aria-pressed', 'true');
+    seen.add(await bg());
+  }
+  expect(seen.size).toBe(4);
+
+  // 選んだテーマは保たれる
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'er');
+
+  // 既定へ戻すと属性そのものが外れる
+  if (isMobile) await page.locator('.tab[data-tab="sound"]').click();
+  await page.locator('.themebtn').first().click();
+  expect(await page.getAttribute('html', 'data-theme')).toBeNull();
+});
+
+test('ER のときだけブロック間にケーブルが引かれる', async ({ page, isMobile }) => {
+  test.skip(isMobile, '狭幅では1セクションしか出ないので結ぶ相手がいない');
+  await page.locator('.themebtn').nth(3).click();   // ER
+  await expect(page.locator('#cables path')).toHaveCount(2);
+  await expect(page.locator('#cables circle')).toHaveCount(4);   // 端子は両端に
+
+  await page.locator('.themebtn').nth(2).click();   // EK
+  await expect(page.locator('#cables path')).toHaveCount(0);
+});
