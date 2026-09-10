@@ -3,11 +3,16 @@
 自動生成のエレクトロを鳴らし続けるシングルファイルの楽器。
 [elevator-one](https://github.com/mrmt/elevator-one) の技術的な骨格を踏襲しつつ、音楽的には別物を目指す。
 
-**現在の状態: 設計を終え、実装前。**
+**現在の状態: 進行の骨組みまで実装済み。まだ音は出ない。**
+
+`index.html` をブラウザで開き、右上の再生ボタンを押すと進行が始まる。
+シーンが数分ごとに移り、16小節ごとにフレーズが変わり、4小節の節目にイベントが出る。
+いま何が起きているかは XY パッドの下に表示される。音源はこれから足す。
 
 設計の議論と決定は [docs/DESIGN.md](docs/DESIGN.md) に集約している。
 D-1 〜 D-13 として決定事項を、末尾に実装の順序を記した。
-シーンの定義は [docs/SCENES.md](docs/SCENES.md) に分けてある。
+シーンの定義は [docs/SCENES.md](docs/SCENES.md)、実装の構造は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、
+テストは [docs/TESTING.md](docs/TESTING.md) に分けてある。
 
 ## 目指すもの
 

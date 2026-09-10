@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover: 指定しないと iOS はページ全体をセーフエリア内に押し込むため、
+     landscape で上下左右に余白が出る。余白の回避は body の padding で行う -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ELEVATOR TWO</title>
+<style>
+  :root{
+    /* one の海の色に対し、two はより暗く青い夜の側へ寄せる */
+    --sea-top:#1A2430;
+    --sea-mid:#131C27;
+    --sea-bot:#0B121B;
+    --panel:rgba(255,255,255,.055);
+    --panel-hi:rgba(255,255,255,.11);
+    --line:rgba(226,236,242,.19);
+    --ink:#E7E2CE;
+    --dim:rgba(214,226,232,.62);
+    --amber:#D8A340;
+    --disp:'Futura','Avenir Next Condensed','Helvetica Neue',sans-serif;
+    --data:'Menlo','Monaco',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--sea-mid);
+    background-image:linear-gradient(180deg,var(--sea-top) 0%,var(--sea-mid) var(--sea-split,52%),var(--sea-bot) 100%);
+    color:var(--ink);
+    font-family:var(--disp);
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;
+    height:100dvh;overflow:hidden;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right)
+            env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+  /* ---- header ---- */
+  header{
+    display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;
+    padding:.8rem 1.2rem .7rem;
+    background:rgba(0,0,0,.21);
+    border-bottom:1px solid var(--line);
+  }
+  .mark{font-size:.95rem;letter-spacing:.42em;text-transform:uppercase}
+  .sub{font-size:.68rem;letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
+  .ver{opacity:.6}
+  /* 現在のシーン名。one の mood 表示と同じ役割 */
+  .scene{color:var(--amber);opacity:.85}
+  .transport{margin-left:auto;display:flex;gap:.55rem;align-items:center;flex-shrink:0}
+  .tbtn{
+    border:1px solid var(--line);
+    padding:.5rem 1.1rem;
+    font-size:.7rem;letter-spacing:.28em;text-transform:uppercase;
+    white-space:nowrap;
+    background:var(--panel);
+    transition:background .18s,border-color .18s,color .18s;
+  }
+  .tbtn:hover{background:var(--panel-hi)}
+  .tbtn[data-on="1"]{background:var(--amber);color:#101A22;border-color:var(--amber)}
+  .sub.lang{padding:0;opacity:.6;transition:color .18s,opacity .18s}
+  .sub.lang:hover{color:var(--amber);opacity:1}
+  /* 再生 / 一時停止。ロック画面と同じ並びで、現在の状態の側が点灯する */
+  .tbtn.xport{display:inline-flex;align-items:center;justify-content:center;width:2rem;height:2rem;padding:0}
+  .tbtn.xport .ico{width:.7rem;height:.7rem;fill:currentColor;flex-shrink:0}
+
+  /* ---- タブ (狭幅時のみ表示) ---- */
+  .tabs{display:none}
+  .tab{
+    flex:1;padding:.62rem .4rem;
+    font-size:.72rem;letter-spacing:.2em;
+    color:var(--dim);border-bottom:2px solid transparent;
+    transition:color .16s,border-color .16s,background .16s;
+  }
+  .tab[aria-selected="true"]{color:var(--amber);border-bottom-color:var(--amber);background:rgba(0,0,0,.16)}
+
+  /* ---- main grid ---- */
+  main{
+    flex:1;min-height:0;display:grid;
+    grid-template-columns:minmax(128px,166px) minmax(0,1fr) minmax(184px,222px);
+    gap:1px;background:var(--line);
+    border-bottom:1px solid var(--line);
+  }
+  section{
+    background:rgba(0,0,0,.21);padding:.9rem 1rem 1rem;
+    min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;
+    scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+  }
+  section::-webkit-scrollbar{width:7px}
+  section::-webkit-scrollbar-thumb{background:var(--line)}
+  section::-webkit-scrollbar-track{background:transparent}
+  .eyebrow{
+    font-size:.6rem;letter-spacing:.3em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:.85rem;
+  }
+
+  /* ---- シーン一覧 ---- */
+  .scenebtn{
+    display:block;width:100%;text-align:left;cursor:pointer;
+    padding:.32rem .6rem;margin-bottom:.1rem;
+    font-size:.9rem;letter-spacing:.14em;
+    border-left:2px solid transparent;color:var(--dim);
+    transition:color .16s,background .16s,border-color .16s;
+  }
+  .scenebtn:hover{color:var(--ink);background:var(--panel)}
+  .scenebtn[aria-pressed="true"]{color:var(--amber);border-left-color:var(--amber);background:var(--panel)}
+  .scenebtn small{display:block;font-size:.56rem;letter-spacing:.12em;color:var(--dim);margin-top:.12rem}
+  html[lang="en"] .scenebtn small{display:none}
+  /* 群の見出し。シーンは主回路ごとに固まって並ぶ */
+  .group{
+    font-size:.55rem;letter-spacing:.26em;text-transform:uppercase;
+    color:rgba(214,226,232,.4);margin:.7rem 0 .3rem;
+  }
+  .group:first-child{margin-top:0}
+
+  /* ---- plane ---- */
+  .plane-wrap{display:flex;flex-direction:column;height:100%;overflow:hidden}
+  .plane{
+    position:relative;flex:1;min-height:96px;
+    border:1px solid var(--line);background:rgba(0,0,0,.30);
+    touch-action:none;cursor:crosshair;
+    container-type:size;container-name:pad;
+  }
+  .plane canvas{display:block;width:100%;height:100%}
+  .axis{
+    display:flex;justify-content:space-between;
+    font-size:.58rem;letter-spacing:.22em;color:var(--dim);
+    text-transform:uppercase;margin-top:.5rem;
+  }
+  .plane-outer{position:relative;flex:1;min-height:0;display:flex;gap:.5rem}
+  .axis-v{
+    display:flex;flex-direction:column;justify-content:space-between;align-items:center;
+    width:1.05rem;flex:none;
+    font-size:.58rem;letter-spacing:.22em;color:var(--dim);
+  }
+  .axis-v span{writing-mode:vertical-rl;text-orientation:upright;letter-spacing:.1em}
+  html[lang="en"] .axis-v span{text-orientation:mixed;letter-spacing:.22em}
+  .axis-v .mid{color:var(--ink)}
+
+  /* ---- pad overlay readout ---- */
+  .overlay{
+    position:absolute;inset:0;pointer-events:none;overflow:hidden;
+    display:flex;flex-direction:column;justify-content:center;align-items:center;
+    gap:clamp(0rem,.7vh,.5rem);padding:.4rem;text-align:center;
+    font-family:'Helvetica Neue','Avenir Next','Hiragino Sans',system-ui,sans-serif;
+    text-shadow:0 1px 16px rgba(0,0,0,.34);
+  }
+  .overlay .k{
+    display:block;font-size:clamp(.6rem,1.5vh,.82rem);letter-spacing:.34em;
+    color:rgba(233,242,246,.34);margin-bottom:.02em;
+  }
+  .overlay b{
+    display:block;font-weight:500;
+    font-size:clamp(1.65rem,7.05vh,4.2rem);line-height:1.0;
+    letter-spacing:.005em;font-variant-numeric:tabular-nums;
+    color:rgba(233,242,246,.26);
+  }
+  @container pad (min-aspect-ratio: 2/1){
+    .overlay{flex-flow:row wrap;align-content:center;column-gap:6%}
+    .overlay>div{width:40%}
+    .overlay b{font-size:clamp(1.65rem,11vh,4.2rem)}
+    .overlay .k{font-size:clamp(.6rem,2.2vh,.82rem)}
+  }
+
+  /* ---- tooltip ---- */
+  #tip{
+    position:fixed;z-index:60;max-width:15rem;pointer-events:none;
+    background:#16222C;border:1px solid var(--line);
+    color:var(--ink);font-size:.68rem;line-height:1.6;letter-spacing:.05em;
+    padding:.45rem .65rem;opacity:0;transition:opacity .12s;
+  }
+  #tip.on{opacity:1}
+  #tip.fade{transition:opacity .9s}
+
+  /* ---- params ---- */
+  .param{margin-bottom:.62rem}
+  .param label{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:.72rem;letter-spacing:.16em;margin-bottom:.18rem;
+  }
+  .param .val{font-family:var(--data);font-size:.65rem;color:var(--amber);letter-spacing:.04em}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:14px;background:transparent;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--line)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:9px;height:14px;margin-top:-7px;
+    background:var(--ink);border:none;border-radius:0;
+  }
+  input[type=range]:hover::-webkit-slider-thumb{background:var(--amber)}
+  input[type=range]::-moz-range-track{height:1px;background:var(--line)}
+  input[type=range]::-moz-range-thumb{width:9px;height:14px;background:var(--ink);border:none;border-radius:0}
+
+  .toggle{
+    display:flex;align-items:center;gap:.5rem;
+    font-size:.72rem;letter-spacing:.16em;
+    border:1px solid var(--line);padding:.45rem .6rem;width:100%;
+    justify-content:space-between;background:var(--panel);
+  }
+  .lamp{width:8px;height:8px;border-radius:50%;background:var(--line);transition:background .2s,box-shadow .2s}
+  .toggle[aria-pressed="true"] .lamp{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+
+  /* ---- ステップ列 ----
+     16ステップ = 1小節。4拍目ごとに区切りを入れ、いま鳴っている位置を琥珀で示す */
+  .steps{
+    display:grid;grid-template-columns:repeat(16,1fr);gap:2px;
+    height:30px;align-items:end;margin-top:.65rem;
+    border-bottom:1px solid var(--line);padding-bottom:2px;
+  }
+  .steps i{display:block;background:var(--line);height:22%;transition:background .1s,box-shadow .1s}
+  .steps i.beat{height:44%}
+  .steps i.now{background:var(--amber);box-shadow:0 0 7px rgba(216,163,64,.65)}
+  .seqhead{display:flex;justify-content:space-between;align-items:baseline;margin-top:1.4rem}
+
+  /* ---- 進行の表示 ----
+     フレーズ型とイベントは音がまだ無いので、当面ここだけが確認手段になる */
+  .prog{
+    font-family:var(--data);font-size:.62rem;letter-spacing:.02em;
+    color:var(--dim);margin-top:.55rem;display:grid;gap:.18rem;
+  }
+  .prog b{color:var(--ink);font-weight:400}
+  .prog .ev{color:var(--amber)}
+
+  /* ---- readout ---- */
+  footer{
+    padding:.5rem 1.2rem;font-family:var(--data);
+    background:rgba(0,0,0,.21);
+    font-size:.62rem;letter-spacing:.02em;color:var(--dim);
+    display:flex;gap:1.4rem;flex-wrap:wrap;align-items:center;flex:none;
+  }
+  footer b{color:var(--ink);font-weight:400}
+  .note{margin-left:auto;color:var(--dim)}
+
+  @media (max-width:900px){
+    body{overscroll-behavior:none}
+    header{gap:.6rem;padding:.6rem .8rem .55rem}
+    header .tagline{display:none}
+    .ver,.lang,.scene{font-size:.6rem;letter-spacing:.12em}
+    .transport{gap:.4rem}
+    .tbtn{padding:.5rem .8rem}
+    .tbtn.xport{width:1.8rem;height:1.8rem}
+    .tabs{display:flex;background:rgba(0,0,0,.21);border-bottom:1px solid var(--line);flex:none}
+    main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr)}
+    main[data-tab]>section{display:none}
+    main[data-tab="scene"] #tab-scene,
+    main[data-tab="sound"] #tab-sound{display:block}
+    main[data-tab="pad"] #tab-pad{display:flex;flex-direction:column}
+    #tab-pad>.eyebrow{display:none}
+    .overlay{font-size:1rem;padding:0 1rem}
+    footer{padding:.42rem .8rem}
+    footer .note{display:none}
+  }
+  @media (min-width:901px) and (max-height:720px){
+    .scenebtn small{display:none}
+    .scenebtn{padding:.24rem .6rem}
+    .param{margin-bottom:.44rem}
+    .steps{height:22px;margin-top:.45rem}
+    .eyebrow{margin-bottom:.55rem}
+    .seqhead{margin-top:.9rem}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none !important}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="mark">Elevator Two</div>
+  <div class="sub tagline">generative electro</div>
+  <div class="sub ver" id="ver"></div>
+  <button class="sub lang" id="lang" data-i18n-tip="tip.lang" data-i18n-aria="transport.lang">JA</button>
+  <!-- 現在のシーン名。中身は updateScene() が入れる -->
+  <div class="sub scene" id="scenename"></div>
+  <div class="transport">
+    <button class="tbtn xport" id="play" data-on="0" aria-pressed="false" aria-label="再生" data-i18n-aria="transport.play" data-i18n-tip="tip.play"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 1 10 6l-7.5 5z"/></svg></button>
+    <button class="tbtn xport" id="pause" data-on="1" aria-pressed="true" aria-label="一時停止" data-i18n-aria="transport.pause" data-i18n-tip="tip.pause"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 1h2.6v10H2.5zM6.9 1h2.6v10H6.9z"/></svg></button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab" data-tab="scene" aria-selected="false" data-i18n="tab.scene">シーン</button>
+  <button class="tab" data-tab="pad" aria-selected="true" data-i18n="tab.pad">XYパッド</button>
+  <button class="tab" data-tab="sound" aria-selected="false" data-i18n="tab.sound">音作り</button>
+</nav>
+
+<main id="main" data-tab="pad">
+  <section id="tab-scene">
+    <div class="eyebrow" data-i18n="section.scene">シーン</div>
+    <!-- 今のシーンを打ち切って次へ進む。波は進むので、行き先は陰陽の位置が決める -->
+    <button class="toggle" id="next" aria-pressed="false" style="margin-bottom:.7rem"
+      data-i18n-tip="tip.next">
+      <span data-i18n="section.next">次へ</span><span class="lamp"></span>
+    </button>
+    <div id="scenes"></div>
+  </section>
+
+  <section class="plane-wrap" id="tab-pad">
+    <div class="eyebrow" data-i18n="section.pad">XYパッド — ドラッグで目標を移動</div>
+    <div class="plane-outer">
+      <div class="axis-v">
+        <span data-i18n="pad.sparse">疎</span><span class="mid" data-i18n="pad.density">密度</span><span data-i18n="pad.dense">密</span>
+      </div>
+      <div class="plane" id="plane">
+        <canvas id="cv"></canvas>
+        <div class="overlay">
+          <div><span class="k" data-i18n="pad.yy">陰陽</span><b id="ryy">—</b></div>
+          <div><span class="k" data-i18n="pad.density">密度</span><b id="rd">—</b></div>
+          <div><span class="k" data-i18n="pad.bpm">BPM</span><b id="rbpm">—</b></div>
+          <div><span class="k" data-i18n="pad.bar">小節</span><b id="rbar">—</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="axis"><span data-i18n="pad.yin">陰</span><span style="color:var(--ink)" data-i18n="pad.yy">陰陽</span><span data-i18n="pad.yang">陽</span></div>
+    <div class="steps" id="steps"></div>
+    <!-- 音がまだ無い段階では、進行が正しく回っているかはここでしか分からない -->
+    <div class="prog">
+      <div><span data-i18n="prog.phrase">フレーズ</span> <b id="pphrase">—</b> <span id="pbarpos"></span></div>
+      <div><span data-i18n="prog.event">イベント</span> <b class="ev" id="pevent">—</b></div>
+      <div><span data-i18n="prog.wave">陰陽の波</span> <b id="pwave">—</b></div>
+    </div>
+  </section>
+
+  <section id="tab-sound">
+    <div class="eyebrow" data-i18n="section.params">パラメータ</div>
+    <div id="params"></div>
+    <div class="seqhead"><div class="eyebrow" style="margin:0" data-i18n="section.clock">クロック</div></div>
+    <div id="clockparams" style="margin-top:.8rem"></div>
+  </section>
+</main>
+
+<footer>
+  <span class="note" data-i18n="footer.note">まだ音は出ない。進行 (シーン / フレーズ / イベント) の骨組みだけが動いている</span>
+</footer>
+
+<div id="tip" role="tooltip"></div>
+
+<!-- メッセージカタログ。UI文字列はすべてここにあり、直書きしない。
+     ja と en はキー集合が一致していること (tests/i18n.spec.js が検証する) -->
+<script>
+const I18N = {
+ja:{
+  'transport.play':'再生','transport.pause':'一時停止','transport.lang':'表示言語を切り替える',
+  'tip.play':'進行を始める。ブラウザの制限で読み込み直後は動かないため、まずここを押す。スペースキーでも切り替え可',
+  'tip.pause':'進行を止める。スペースキーでも切り替え可',
+  'tip.lang':'日本語と英語を切り替える。選んだ言語は次に開いたときも保たれる',
+  'tip.next':'いまのシーンを打ち切って次へ進む',
+  'tab.scene':'シーン','tab.pad':'XYパッド','tab.sound':'音作り',
+  'section.scene':'シーン','section.next':'次へ','section.pad':'XYパッド — ドラッグで目標を移動',
+  'section.params':'パラメータ','section.clock':'クロック',
+  'pad.yy':'陰陽','pad.density':'密度','pad.bpm':'BPM','pad.bar':'小節',
+  'pad.yin':'陰','pad.yang':'陽','pad.sparse':'疎','pad.dense':'密',
+  'prog.phrase':'フレーズ','prog.event':'イベント','prog.wave':'陰陽の波',
+  'footer.note':'まだ音は出ない。進行 (シーン / フレーズ / イベント) の骨組みだけが動いている',
+  'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
+  'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
+  'param.glitch':'グリッチ','param.evolution':'展開','param.mutate':'変異','param.bpm':'BPM','param.glide':'推移時間',
+  'tip.volume':'出力音量',
+  'tip.weight':'ベースとキックの量と音域を下げる',
+  'tip.drive':'サチュレーションとコンプの深さ。ベースの厚みを決める',
+  'tip.space':'リバーブとディレイの量',
+  'tip.glitch':'グリッチ系イベントの発火率',
+  'tip.evolution':'シーンの長さとフレーズ遷移の速さ。上げるほど早く移り変わる',
+  'tip.mutate':'リズムが書き換わる確率',
+  'tip.bpm':'BPMの中心値。シーンごとの自動選択はこの前後で動く',
+  'tip.glide':'連続パラメータが目標値に追いつくまでの時間。リズムはビートに従うのでここには従わない',
+  'phrase.plateau':'定常','phrase.build':'積み上げ','phrase.break':'ブレイク','phrase.drop':'戻し','phrase.dubout':'ディレイ',
+  'event.sweep':'フィルタスイープ','event.masterfilter':'全体フィルタ','event.hatdrop':'ハット抜き',
+  'event.kickdrop':'キック抜き','event.glitch':'グリッチ','event.feedback':'ディレイ跳ね上げ','event.reverse':'逆再生',
+  'scene.submerge.name':'潜行','scene.submerge.desc':'最深部。キック・サブベース・スタブのみ。ディレイは発振寸前',
+  'scene.moss.name':'苔','scene.moss.desc':'中域のノイズパーカッションが増える。ディレイ局面が最も頻出',
+  'scene.drowse.name':'微睡','scene.drowse.desc':'最も遅い。ゆるいii-V。エレピが主役',
+  'scene.frost.name':'霜','scene.frost.desc':'高域のグリッチと金属質のパーカッション。冷たい陰',
+  'scene.pulse.name':'鼓動','scene.pulse.desc':'キック強め。ベースのフィルタが大きくうねる。陰だが体は動く',
+  'scene.glass.name':'硝子','scene.glass.desc':'テンション和音を短く刺す。ジャズとdubの中間',
+  'scene.dusk.name':'夕暮','scene.dusk.desc':'maj9とボサ的シンコペ。彩りが主役を張る',
+  'scene.bounce.name':'跳躍','scene.bounce.desc':'808のシンコペ、ベース主導。持続和音は薄く敷くだけ',
+  'scene.steel.name':'鋼','scene.steel.desc':'硬質なエレクトロ。グリッチ多め',
+  'scene.vista.name':'遠望','scene.vista.desc':'ゆっくり積む。層が薄く広い。陽の入口',
+  'scene.daybreak.name':'曙','scene.daybreak.desc':'add9の持続。レイヤー累積の基本形。最も素直な高揚',
+  'scene.shimmer.name':'陽炎','scene.shimmer.desc':'高域のリフ主体。フィルタが揺れ続ける',
+  'scene.dash.name':'疾走','scene.dash.desc':'最速。アルペジオ主体で累積が速い',
+  'scene.jubilee.name':'祝祭','scene.jubilee.desc':'天井まで積んで戻すのを繰り返す。最も派手',
+},
+en:{
+  'transport.play':'play','transport.pause':'pause','transport.lang':'switch language',
+  'tip.play':'Start the transport. Browsers block audio until you interact, so press here first. Space also toggles.',
+  'tip.pause':'Stop the transport. Space also toggles.',
+  'tip.lang':'Switch between Japanese and English. Your choice is remembered.',
+  'tip.next':'Cut the current scene short and move to the next one',
+  'tab.scene':'scene','tab.pad':'XY pad','tab.sound':'sound',
+  'section.scene':'scene','section.next':'next','section.pad':'XY pad — drag to move the target',
+  'section.params':'parameters','section.clock':'clock',
+  'pad.yy':'yin-yang','pad.density':'density','pad.bpm':'BPM','pad.bar':'bar',
+  'pad.yin':'yin','pad.yang':'yang','pad.sparse':'sparse','pad.dense':'dense',
+  'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave',
+  'footer.note':'No sound yet — only the transport (scene / phrase / event) is running',
+  'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
+  'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
+  'param.glitch':'glitch','param.evolution':'evolution','param.mutate':'mutate','param.bpm':'BPM','param.glide':'glide',
+  'tip.volume':'Output level',
+  'tip.weight':'Lowers the register and adds bass and kick weight',
+  'tip.drive':'Saturation and compression depth. Sets the thickness of the bass.',
+  'tip.space':'Reverb and delay amount',
+  'tip.glitch':'How often glitch events fire',
+  'tip.evolution':'Scene length and phrase transition speed. Higher moves on sooner.',
+  'tip.mutate':'Probability that the rhythm is rewritten',
+  'tip.bpm':'Centre BPM. The per-scene choice moves around this value.',
+  'tip.glide':'How long continuous parameters take to reach their target. Rhythm follows the beat instead.',
+  'phrase.plateau':'plateau','phrase.build':'build','phrase.break':'break','phrase.drop':'drop','phrase.dubout':'dub out',
+  'event.sweep':'filter sweep','event.masterfilter':'master filter','event.hatdrop':'hats out',
+  'event.kickdrop':'kick out','event.glitch':'glitch','event.feedback':'delay surge','event.reverse':'reverse',
+  'scene.submerge.name':'submerge','scene.submerge.desc':'The deepest point. Kick, sub bass and stabs only; delay near self-oscillation.',
+  'scene.moss.name':'moss','scene.moss.desc':'Mid-range noise percussion comes in. Dub-out phrases appear most often here.',
+  'scene.drowse.name':'drowse','scene.drowse.desc':'The slowest scene. Loose ii-V, electric piano out front.',
+  'scene.frost.name':'frost','scene.frost.desc':'High glitches and metallic percussion. The cold side of yin.',
+  'scene.pulse.name':'pulse','scene.pulse.desc':'Stronger kick, bass filter sweeping wide. Yin, but it moves.',
+  'scene.glass.name':'glass','scene.glass.desc':'Short tension chords, stabbed. Halfway between jazz and dub.',
+  'scene.dusk.name':'dusk','scene.dusk.desc':'maj9 chords and bossa syncopation. Colour takes the lead.',
+  'scene.bounce.name':'bounce','scene.bounce.desc':'808 syncopation, bass driven. Sustained chords stay in the background.',
+  'scene.steel.name':'steel','scene.steel.desc':'Hard-edged electro with plenty of glitch.',
+  'scene.vista.name':'vista','scene.vista.desc':'Builds slowly. Thin and wide. The doorway into yang.',
+  'scene.daybreak.name':'daybreak','scene.daybreak.desc':'Sustained add9 chords. The plain form of layer accumulation.',
+  'scene.shimmer.name':'shimmer','scene.shimmer.desc':'Driven by a high riff, with the filter always moving.',
+  'scene.dash.name':'dash','scene.dash.desc':'The fastest scene. Arpeggio led, accumulating quickly.',
+  'scene.jubilee.name':'jubilee','scene.jubilee.desc':'Stacks to the ceiling and drops, over and over. The showiest scene.',
+},
+};
+</script>
+
+<script>
+(() => {
+"use strict";
+
+/* ============================================================
+   表示言語
+   ラベルは I18N (上の script ブロック) から t() 経由で引く。
+   保存値が無いときだけブラウザ言語で決める。
+   ============================================================ */
+const LANG_KEY = 'elevator-two:lang';
+let lang = null;
+try{ lang = localStorage.getItem(LANG_KEY); }catch(_){ /* Safari のプライベートモード等 */ }
+if(lang !== 'ja' && lang !== 'en'){
+  const ls = (navigator.languages && navigator.languages.length)
+    ? navigator.languages : [navigator.language || ''];
+  lang = ls.some(l => /^ja\b/i.test(l)) ? 'ja' : 'en';
+}
+const t = key => (I18N[lang] && I18N[lang][key]) ?? I18N.ja[key] ?? key;
+
+const VERSION='v0.1';
+
+const lerp=(a,b,u)=>a+(b-a)*u;
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const rand=(a,b)=>a+Math.random()*(b-a);
+const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+
+/* ============================================================
+   パラメータ定義 (DESIGN.md D-11)
+   yy (陰陽) と density は XY パッドで、残りはスライダーで操作する。
+   ============================================================ */
+const P = {
+  yy:        {def:.20},   // 0=陰 (dub) 〜 1=陽 (高揚)
+  density:   {def:.45},
+  weight:    {def:.55},
+  drive:     {def:.50},
+  space:     {def:.55},
+  glitch:    {def:.25},
+  evolution: {def:.45},
+  mutate:    {def:.30},
+};
+const SLIDERS = ['weight','drive','space','glitch','evolution'];
+const CLOCKP  = ['mutate'];
+
+/* ============================================================
+   シーン定義 (docs/SCENES.md)
+   yy は陰陽の位置、bpm はシーン固有の基準。hatK は D-7 のユークリッド E(k,16)。
+   w は第2層フレーズ型の出現重み。
+   ============================================================ */
+const PHRASES = ['plateau','build','break','drop','dubout'];
+const SCENES = [
+  // --- スタブ回路 / 陰 ---
+  {id:'submerge', group:'stab',    yy:0.00, bpm:118, kit:'deep',    hatK:5,  glitch:.15, w:{plateau:4,build:1,break:1,drop:0,dubout:5}},
+  {id:'moss',     group:'stab',    yy:0.10, bpm:120, kit:'deep',    hatK:7,  glitch:.15, w:{plateau:4,build:1,break:1,drop:0,dubout:6}},
+  {id:'frost',    group:'stab',    yy:0.20, bpm:122, kit:'hard',    hatK:11, glitch:.70, w:{plateau:3,build:1,break:3,drop:1,dubout:5}},
+  {id:'pulse',    group:'stab',    yy:0.28, bpm:121, kit:'deep',    hatK:7,  glitch:.40, w:{plateau:4,build:3,break:1,drop:1,dubout:3}},
+  // --- ジャズ・ボッサ回路 / 彩り ---
+  {id:'drowse',   group:'jazz',    yy:0.15, bpm:119, kit:'warm',    hatK:5,  glitch:.10, w:{plateau:5,build:1,break:3,drop:0,dubout:2}},
+  {id:'glass',    group:'jazz',    yy:0.38, bpm:125, kit:'hard',    hatK:9,  glitch:.40, w:{plateau:4,build:2,break:2,drop:1,dubout:4}},
+  {id:'dusk',     group:'jazz',    yy:0.45, bpm:122, kit:'warm',    hatK:7,  glitch:.15, w:{plateau:5,build:3,break:2,drop:1,dubout:2}},
+  // --- electro funk ---
+  {id:'bounce',   group:'funk',    yy:0.55, bpm:123, kit:'electro', hatK:9,  glitch:.40, w:{plateau:2,build:4,break:2,drop:4,dubout:1}},
+  {id:'steel',    group:'funk',    yy:0.62, bpm:127, kit:'electro', hatK:11, glitch:.70, w:{plateau:2,build:4,break:3,drop:4,dubout:1}},
+  // --- 持続回路 / 陽 ---
+  {id:'vista',    group:'sustain', yy:0.70, bpm:124, kit:'warm',    hatK:5,  glitch:.15, w:{plateau:4,build:5,break:1,drop:2,dubout:1}},
+  {id:'daybreak', group:'sustain', yy:0.78, bpm:126, kit:'warm',    hatK:7,  glitch:.15, w:{plateau:3,build:6,break:1,drop:4,dubout:1}},
+  {id:'shimmer',  group:'sustain', yy:0.85, bpm:128, kit:'hard',    hatK:9,  glitch:.40, w:{plateau:4,build:5,break:1,drop:3,dubout:1}},
+  {id:'dash',     group:'sustain', yy:0.93, bpm:132, kit:'electro', hatK:11, glitch:.40, w:{plateau:2,build:6,break:1,drop:5,dubout:0}},
+  {id:'jubilee',  group:'sustain', yy:1.00, bpm:130, kit:'electro', hatK:9,  glitch:.15, w:{plateau:2,build:7,break:1,drop:6,dubout:0}},
+];
+// シーン一覧はこの順に並べる。群の見出しを間に挟む
+const GROUP_ORDER = ['stab','jazz','funk','sustain'];
+
+/* 第3層イベント (D-4)。p は基礎発火率で、glitch スライダーとシーンの glitch が重み付ける */
+const EVENTS = [
+  {id:'sweep',        p:.30, glitchy:false},
+  {id:'masterfilter', p:.10, glitchy:false},
+  {id:'hatdrop',      p:.20, glitchy:false},
+  {id:'kickdrop',     p:.12, glitchy:false},
+  {id:'glitch',       p:.28, glitchy:true},
+  {id:'feedback',     p:.18, glitchy:false},
+  {id:'reverse',      p:.14, glitchy:true},
+];
+
+const target={}, current={};
+for(const k in P){ target[k]=P[k].def; current[k]=P[k].def; }
+let glide=12;        // 秒。目標に到達するおおよその時間
+let volume=80;
+let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後で動く (D-11)
+
+/* ============================================================
+   オーディオ
+   ------------------------------------------------------------
+   この段階ではまだ音源を持たない。マスター段とクロックだけを立て、
+   進行 (シーン / フレーズ / イベント) が正しく回ることを先に確かめる。
+   音を足すときはこの下に音源を作り、playStep() から鳴らす。
+   ============================================================ */
+let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
+    running=false, ready=false;
+
+function build(){
+  ctx = new (window.AudioContext||window.webkitAudioContext)();
+  ctx.onstatechange=()=>reviveAudio();   // iOS は interrupted に落とすことがある
+
+  comp = ctx.createDynamicsCompressor();
+  comp.threshold.value=-14; comp.knee.value=24; comp.ratio.value=4;
+  comp.attack.value=.05; comp.release.value=.6;
+
+  // DynamicsCompressorNode は自動メイクアップを持たないので、圧縮した分を戻す段を後ろに置く
+  makeup = ctx.createGain(); makeup.gain.value=1;
+
+  // コンプのアタックをすり抜ける立ち上がりを tanh で丸める。
+  // 前段で半分にしてから curve の定義域 -1〜1 を実振幅 -2〜2 に見立てる
+  const clipPre = ctx.createGain(); clipPre.gain.value=.5;
+  const clip = ctx.createWaveShaper();
+  {
+    const n=2048, curve=new Float32Array(n);
+    for(let i=0;i<n;i++) curve[i]=Math.tanh((i/(n-1)*2-1)*2);
+    clip.curve=curve; clip.oversample='4x';
+  }
+  out = clip;   // destination への最終段。経路の切り替えはここから行う
+
+  master = ctx.createGain(); master.gain.value=0;
+  master.connect(comp).connect(makeup).connect(clipPre).connect(clip).connect(ctx.destination);
+  streamDest = ctx.createMediaStreamDestination();
+  out.connect(streamDest);   // バックグラウンド再生用の <audio> へ流す経路
+
+  ready=true;
+}
+
+/* ---- 現在値をオーディオに反映 ---- */
+// 音源がまだ無いのでマスター音量だけ。音を足したらここが本体になる
+function apply(){
+  if(!ctx || !ready) return;
+  const tm=ctx.currentTime, T=.25;
+  master.gain.setTargetAtTime(running ? volume/100 : 0, tm, T);
+}
+
+/* ============================================================
+   進行 — 第1層 シーン (D-4 / D-12 / D-13)
+   ============================================================ */
+let sceneIdx=0;          // いま鳴っているシーン
+let sceneStartBar=0;     // そのシーンが始まった小節
+let sceneBars=0;         // このシーンを何小節続けるか
+let recent=[];           // 直近に出たシーン。同じものを続けて引かないため
+
+// 陰陽の波。陰 → 陽 → 陰 を 20〜40 分かけて往復する (D-13)
+let wavePos=0;           // 0〜1 の位相
+let wavePeriod=1800;     // 秒。1周期。揺らぎを持たせて毎回同じ形にはしない
+const waveYY = pos => .5 - .5*Math.cos(pos*Math.PI*2);
+
+function newWavePeriod(){ wavePeriod=rand(1200,2400); }
+
+// 波の位置から次のシーンを選ぶ。直近に出たものは避ける
+function chooseScene(){
+  const yy=waveYY(wavePos);
+  const cand=SCENES.map((s,i)=>({i,d:Math.abs(s.yy-yy)}))
+    .filter(c=>!recent.includes(c.i))
+    .sort((a,b)=>a.d-b.d);
+  const pool=cand.slice(0,3);   // 最も近い3つから引き、同じ道を辿らせない
+  return pool.length ? pick(pool).i : Math.floor(Math.random()*SCENES.length);
+}
+
+// evolution が高いほどシーンは短い。2〜5分 (D-12) を小節数に直す
+function sceneLengthBars(){
+  const sec=lerp(300,120,current.evolution)*rand(.85,1.15);
+  return Math.max(16, Math.round(sec/(60/bpmNow()*4)/16)*16);   // 16小節の倍数に丸める
+}
+
+function enterScene(idx,{manual=false}={}){
+  sceneIdx=idx;
+  sceneStartBar=barCount;
+  sceneBars=sceneLengthBars();
+  recent.push(idx); if(recent.length>3) recent.shift();
+  // 手で選ばれた場合は、そのシーンの陰陽へ波の位置を移してから続きを進める (D-13)
+  if(manual) wavePos=yyToWavePos(SCENES[idx].yy);
+  target.yy=SCENES[idx].yy;
+  sceneEdited=false;
+  updateScene();
+  highlightScene();
+}
+
+// 陰陽値から波の位相を逆に引く。いまが上り坂なら上り側、下り坂なら下り側を返す
+function yyToWavePos(yy){
+  const a=Math.acos(clamp(1-2*yy,-1,1))/(Math.PI*2);   // 0〜.5 (上り)
+  const rising = (wavePos%1) < .5;
+  return rising ? a : 1-a;
+}
+
+/* ---- 第2層 フレーズ (16小節) ---- */
+const PHRASE_BARS=16;
+let phrase='plateau', phraseStartBar=0;
+
+function choosePhrase(){
+  const w=SCENES[sceneIdx].w;
+  let sum=0; for(const k of PHRASES) sum+=w[k]||0;
+  if(sum<=0) return 'plateau';
+  let r=Math.random()*sum;
+  for(const k of PHRASES){ r-=(w[k]||0); if(r<=0) return k; }
+  return 'plateau';
+}
+
+// build が続いたあとは drop で剥がす、といった並びの制約はここに置く (D-9)
+function nextPhrase(){
+  const prev=phrase;
+  let p=choosePhrase();
+  if(prev==='build' && p==='build' && Math.random()<.6) p='drop';
+  if(prev==='break' && p==='break') p='drop';
+  phrase=p; phraseStartBar=barCount;
+  showProgress();
+}
+
+/* ---- 第3層 イベント (4 / 8 小節の節目) ---- */
+let lastEvent='—', lastEventBar=-99;
+
+function maybeEvent(bar){
+  const sc=SCENES[sceneIdx];
+  // ブレイク中と定常では起きやすさが違う。build の途中は仕掛けを増やす
+  const base = phrase==='build' ? .55 : phrase==='plateau' ? .30 : .40;
+  if(Math.random()>base) return;
+  const weights=EVENTS.map(e=>{
+    if(!e.glitchy) return e.p;
+    return e.p*(0.2+current.glitch*1.6)*(0.4+sc.glitch*1.2);   // グリッチ系だけ二重に重み付ける
+  });
+  let sum=weights.reduce((a,b)=>a+b,0);
+  let r=Math.random()*sum;
+  for(let i=0;i<EVENTS.length;i++){
+    r-=weights[i];
+    if(r<=0){ lastEvent=EVENTS[i].id; lastEventBar=bar; break; }
+  }
+  showProgress();
+}
+
+/* ============================================================
+   クロック
+   小節と16分ステップを ctx.currentTime 基準で進める。
+   setTimeout はバックグラウンドで絞られるが、音声時計は絞られない。
+   ============================================================ */
+let stepIdx=0, barCount=0, nextStepTime=0, uiStep=-1;
+const uiSteps=[];   // 表示の予定。遅れて届いた分は最新だけ描く
+
+function bpmNow(){
+  // シーンの bpm を、BPM スライダーの中心値のぶんだけ平行移動する (D-11)
+  return clamp(SCENES[sceneIdx].bpm + (bpmCenter-125), 100, 150);
+}
+function stepDur(){ return 60/bpmNow()/4; }   // 16分音符
+
+// 1ステップぶんの予約。音を足すのはここ
+function playStep(i,time){
+  showStepAt(i,time);
+}
+
+function showStepAt(idx,at){ uiSteps.push({idx,at}); }
+function flushSteps(){ uiSteps.length=0; }
+function runStepUI(now){
+  let bestAt=-1,bestIdx=-1;
+  for(let i=uiSteps.length-1;i>=0;i--){
+    if(uiSteps[i].at>now) continue;
+    if(uiSteps[i].at>bestAt){ bestAt=uiSteps[i].at; bestIdx=uiSteps[i].idx; }
+    uiSteps.splice(i,1);
+  }
+  if(bestIdx>=0 && bestIdx!==uiStep){ uiStep=bestIdx; renderSteps(); }
+}
+
+// 小節の頭で3階層を進める。ここが進行の中心
+function onBar(bar){
+  if(bar-phraseStartBar>=PHRASE_BARS) nextPhrase();
+  if(bar>0 && bar%4===0) maybeEvent(bar);   // 開始直後の1小節目にいきなり仕掛けを出さない
+  // シーンの切り替えはフレーズの切れ目でのみ起きる。途中で切らない
+  if(bar-sceneStartBar>=sceneBars && bar===phraseStartBar){
+    newWavePeriod();
+    enterScene(chooseScene());
+  }
+  showProgress();
+}
+
+function seqTick(){
+  const now=ctx.currentTime;
+  const ahead=.12;   // 先読み。これより先の予約はしない
+  while(nextStepTime < now+ahead){
+    if(stepIdx===0) onBar(barCount);
+    playStep(stepIdx,nextStepTime);
+    nextStepTime += stepDur();
+    stepIdx++;
+    if(stepIdx>=16){ stepIdx=0; barCount++; }
+  }
+}
+
+/* ============================================================
+   平滑化ループ
+   ============================================================ */
+let last=performance.now(), smoothAt=0;
+function smooth(){
+  const now=performance.now();
+  const dt=Math.min(.5,(now-last)/1000); last=now;   // 復帰直後の巨大なdtで値が飛ばないように抑える
+  smoothAt=now;
+  const tau=Math.max(1,glide)/3;
+  const k=1-Math.exp(-dt/tau);
+  for(const key in P) current[key]+=(target[key]-current[key])*k;
+
+  // 波を進め、手で触られていない限り陰陽の目標を波に従わせる (D-13)
+  if(running && !dragging){
+    wavePos=(wavePos+dt/wavePeriod)%1;
+    if(!sceneEdited) target.yy=lerp(target.yy, waveYY(wavePos), Math.min(1,dt*.5));
+  }
+  apply();
+  readout();
+}
+// 音声時計が止まっている間 (発音前、AudioContextの中断中) の受け皿
+setInterval(()=>{ if(performance.now()-smoothAt>=250) smooth(); }, 100);
+
+/* ============================================================
+   UI
+   ============================================================ */
+document.getElementById('ver').textContent=VERSION;
+const sceneNameEl=document.getElementById('scenename');
+const scenesEl=document.getElementById('scenes');
+let sceneEdited=false;   // 手でスライダーを動かした印。one の (edit) と同じ
+
+function sceneLabel(){
+  return t(`scene.${SCENES[sceneIdx].id}.name`) + (sceneEdited?' (edit)':'');
+}
+function updateScene(){
+  const label=sceneLabel();
+  sceneNameEl.textContent=label;
+  document.title=`Elevator Two — ${label}`;
+  updateMediaMetadata();
+}
+
+// シーン一覧。群ごとに見出しを挟んで並べる (docs/SCENES.md の順)
+const sceneBtns=[];
+for(const grp of GROUP_ORDER){
+  const h=document.createElement('div');
+  h.className='group'; h.dataset.i18n=`group.${grp}`;
+  scenesEl.appendChild(h);
+  SCENES.forEach((sc,i)=>{
+    if(sc.group!==grp) return;
+    const b=document.createElement('button');
+    b.className='scenebtn'; b.setAttribute('aria-pressed','false');
+    b.dataset.i18nTip=`scene.${sc.id}.desc`;
+    b.innerHTML=`<span data-i18n="scene.${sc.id}.name"></span><small>${I18N.en[`scene.${sc.id}.name`]}</small>`;
+    b.addEventListener('click',()=>enterScene(i,{manual:true}));
+    scenesEl.appendChild(b);
+    sceneBtns[i]=b;
+  });
+}
+function highlightScene(){
+  sceneBtns.forEach((b,i)=>b.setAttribute('aria-pressed',String(i===sceneIdx)));
+}
+
+// 「次へ」— いまのシーンを打ち切り、波を少し進めてから次を引く (D-13)
+document.getElementById('next').addEventListener('click',e=>{
+  wavePos=(wavePos+0.06)%1;
+  newWavePeriod();
+  enterScene(chooseScene());
+  const b=e.currentTarget;
+  b.setAttribute('aria-pressed','true');
+  setTimeout(()=>b.setAttribute('aria-pressed','false'),260);
+});
+
+/* ---- スライダー ---- */
+const paramsEl=document.getElementById('params');
+const clockEl=document.getElementById('clockparams');
+const inputs={};
+function makeSlider(key,host){
+  const wrap=document.createElement('div'); wrap.className='param';
+  wrap.innerHTML=`<label for="s_${key}"><span data-i18n="param.${key}" data-i18n-tip="tip.${key}"></span><span class="val" id="v_${key}"></span></label>`;
+  const r=document.createElement('input');
+  r.type='range'; r.min=0; r.max=1; r.step=.005; r.value=target[key]; r.id='s_'+key;
+  r.addEventListener('input',()=>{ target[key]=parseFloat(r.value); updateVal(key); markEdited(); });
+  wrap.appendChild(r); host.appendChild(wrap);
+  inputs[key]=r; updateVal(key);
+}
+// 音量は出力そのものなので 0〜100。雰囲気の手動操作ではないため (edit) は付けない
+{
+  const wrap=document.createElement('div'); wrap.className='param';
+  wrap.innerHTML=`<label for="s_volume"><span data-i18n="param.volume" data-i18n-tip="tip.volume"></span><span class="val" id="v_volume">${volume}</span></label>`;
+  const r=document.createElement('input');
+  r.type='range'; r.min=0; r.max=100; r.step=1; r.value=volume; r.id='s_volume';
+  r.addEventListener('input',()=>{
+    volume=parseInt(r.value,10);
+    document.getElementById('v_volume').textContent=volume;
+  });
+  wrap.appendChild(r); paramsEl.appendChild(wrap);
+}
+for(const key of SLIDERS) makeSlider(key,paramsEl);
+for(const key of CLOCKP)  makeSlider(key,clockEl);
+// BPM の中心値。シーンごとの自動選択はこの前後で動く (D-11)
+{
+  const wrap=document.createElement('div'); wrap.className='param';
+  wrap.innerHTML=`<label for="s_bpm"><span data-i18n="param.bpm" data-i18n-tip="tip.bpm"></span><span class="val" id="v_bpm">${bpmCenter}</span></label>`;
+  const r=document.createElement('input');
+  r.type='range'; r.min=110; r.max=140; r.step=1; r.value=bpmCenter; r.id='s_bpm';
+  r.addEventListener('input',()=>{
+    bpmCenter=parseInt(r.value,10);
+    document.getElementById('v_bpm').textContent=bpmCenter;
+  });
+  wrap.appendChild(r); clockEl.appendChild(wrap);
+}
+// 推移時間。two ではリズムはビートに従うので、これが効くのは連続パラメータだけ
+{
+  const wrap=document.createElement('div'); wrap.className='param';
+  wrap.innerHTML=`<label for="s_glide"><span data-i18n="param.glide" data-i18n-tip="tip.glide"></span><span class="val" id="v_glide">${glide}s</span></label>`;
+  const r=document.createElement('input');
+  r.type='range'; r.min=3; r.max=120; r.step=1; r.value=glide; r.id='s_glide';
+  r.addEventListener('input',()=>{ glide=parseFloat(r.value); document.getElementById('v_glide').textContent=glide+'s'; });
+  wrap.appendChild(r); clockEl.appendChild(wrap);
+}
+
+function updateVal(key){
+  const el=document.getElementById('v_'+key);
+  if(el) el.textContent=target[key].toFixed(2);
+}
+function syncUI(){
+  for(const key in inputs){ inputs[key].value=target[key]; updateVal(key); }
+}
+function markEdited(){
+  sceneBtns.forEach(b=>b.setAttribute('aria-pressed','false'));
+  if(!sceneEdited){ sceneEdited=true; updateScene(); }
+}
+
+/* ---- ステップ列 ---- */
+const stepsEl=document.getElementById('steps');
+for(let i=0;i<16;i++) stepsEl.appendChild(document.createElement('i'));
+function renderSteps(){
+  const cells=stepsEl.children;
+  for(let i=0;i<16;i++){
+    cells[i].className=(i%4===0?'beat':'')+(i===uiStep?' now':'');
+  }
+}
+renderSteps();
+
+/* ---- 進行の表示 ---- */
+const pPhrase=document.getElementById('pphrase');
+const pBarPos=document.getElementById('pbarpos');
+const pEvent=document.getElementById('pevent');
+const pWave=document.getElementById('pwave');
+function showProgress(){
+  pPhrase.textContent=t(`phrase.${phrase}`);
+  const inPhrase=barCount-phraseStartBar+1;
+  const inScene=barCount-sceneStartBar+1;
+  pBarPos.textContent=`${inPhrase}/${PHRASE_BARS}  (scene ${inScene}/${sceneBars})`;
+  pEvent.textContent = lastEventBar<0 ? '—'
+    : `${t('event.'+lastEvent)}  @bar ${lastEventBar}`;
+  const yy=waveYY(wavePos);
+  pWave.textContent=`${yy.toFixed(2)}  ${(wavePos*100).toFixed(0)}%  / ${Math.round(wavePeriod/60)}min`;
+}
+
+/* ---- XY パッド ---- */
+const plane=document.getElementById('plane');
+const cv=document.getElementById('cv'), g2=cv.getContext('2d');
+function resize(){
+  const r=cv.getBoundingClientRect(), d=window.devicePixelRatio||1;
+  cv.width=Math.max(1,Math.round(r.width*d));
+  cv.height=Math.max(1,Math.round(r.height*d));
+  g2.setTransform(d,0,0,d,0,0);
+}
+new ResizeObserver(resize).observe(plane);
+window.addEventListener('resize',resize);
+resize();
+
+let dragging=false;
+function setFromPointer(e){
+  const r=cv.getBoundingClientRect();
+  target.yy      = clamp((e.clientX-r.left)/r.width);
+  target.density = clamp((e.clientY-r.top)/r.height);
+  // 手で陰陽を動かしたら、波の位置もそこへ移す。放したあとは続きから進む (D-13)
+  wavePos=yyToWavePos(target.yy);
+  markEdited();
+}
+plane.addEventListener('pointerdown',e=>{dragging=true;plane.setPointerCapture(e.pointerId);setFromPointer(e)});
+plane.addEventListener('pointermove',e=>{if(dragging)setFromPointer(e)});
+plane.addEventListener('pointerup',()=>dragging=false);
+plane.addEventListener('pointercancel',()=>dragging=false);
+
+// 陰は青緑、陽は琥珀。密度で粒の数が変わる
+const flakes=[];
+function draw(){
+  requestAnimationFrame(draw);
+  const w=cv.clientWidth, h=cv.clientHeight;
+  if(!w||!h) return;
+  const yy=current.yy, dn=current.density;
+
+  // 陰 (青緑) から陽 (琥珀) へ。色相を下る経路は緑を通ってしまうので、
+  // 青 → 紫 → 赤と上って一周させる
+  const hue=(a,b)=>(lerp(a,b,yy))%360;
+  const gd=g2.createLinearGradient(0,0,w,h);
+  gd.addColorStop(0, `hsl(${hue(196,398)} ${lerp(34,52,yy)}% ${lerp(11,19,yy)}%)`);
+  gd.addColorStop(1, `hsl(${hue(210,382)} ${lerp(40,44,yy)}% ${lerp(6,11,yy)}%)`);
+  g2.fillStyle=gd; g2.fillRect(0,0,w,h);
+
+  const want=Math.round(lerp(14,90,dn));
+  while(flakes.length<want) flakes.push({x:Math.random()*w,y:Math.random()*h,v:rand(.1,.5),r:rand(.6,2.2)});
+  while(flakes.length>want) flakes.pop();
+  g2.fillStyle=`rgba(231,226,206,${lerp(.10,.26,yy)})`;
+  for(const f of flakes){
+    f.y-=f.v*(0.4+dn); if(f.y<0){ f.y=h; f.x=Math.random()*w; }
+    g2.beginPath(); g2.arc(f.x,f.y,f.r*lerp(1.6,.7,dn),0,6.283); g2.fill();
+  }
+
+  // 拍の明滅。無音の段階でも拍が見えるようにしておく
+  if(uiStep>=0 && uiStep%4===0){
+    g2.fillStyle=`rgba(216,163,64,${.05+ (uiStep===0?.05:0)})`;
+    g2.fillRect(0,0,w,h);
+  }
+
+  // 白い十字が目標、琥珀のランプが現在地
+  const tx=target.yy*w, ty=target.density*h;
+  g2.strokeStyle='rgba(255,255,255,.5)'; g2.lineWidth=1;
+  g2.beginPath(); g2.moveTo(tx-7,ty); g2.lineTo(tx+7,ty); g2.moveTo(tx,ty-7); g2.lineTo(tx,ty+7); g2.stroke();
+  const cx=current.yy*w, cy=current.density*h;
+  g2.fillStyle='rgba(216,163,64,.9)';
+  g2.beginPath(); g2.arc(cx,cy,3.4,0,6.283); g2.fill();
+}
+draw();
+
+/* ---- 読み出し ---- */
+const rYY=document.getElementById('ryy'), rD=document.getElementById('rd'),
+      rBPM=document.getElementById('rbpm'), rBar=document.getElementById('rbar');
+function readout(){
+  rYY.textContent=current.yy.toFixed(2);
+  rD.textContent=current.density.toFixed(2);
+  rBPM.textContent=Math.round(bpmNow());
+  rBar.textContent=running ? String(barCount-sceneStartBar+1) : '—';
+  document.body.style.setProperty('--sea-split', (34+current.density*34).toFixed(1)+'%');
+}
+
+/* ============================================================
+   バックグラウンド再生
+   ------------------------------------------------------------
+   iOS の Safari は画面ロックやバックグラウンド遷移で2つの止め方をしてくる。
+
+   1. AudioContext 自体が中断される
+      → 出力を MediaStreamDestination 経由で <audio> 要素に流し、
+        ページを「メディア再生中」として扱わせる
+   2. setInterval / setTimeout が絞られて止まる
+      → 進行の時計を AudioWorklet に移す。音声スレッドで回るので絞られない
+
+   どちらも対応していない環境では ctx.destination と setInterval に戻る。
+   elevator-one で作った仕組みをそのまま引き継いでいる (D-2)。
+   ============================================================ */
+const CLOCK_SRC=`
+class ClockProcessor extends AudioWorkletProcessor {
+  constructor(){ super(); this.n=0; }
+  process(){
+    if(++this.n>=8){ this.n=0; this.port.postMessage(0); }   // 128フレーム × 8
+    return true;
+  }
+}
+registerProcessor('clock', ClockProcessor);
+`;
+
+let clockNode=null, sink=null, sinkActive=false, fallbackTimer=null;
+
+function tick(){
+  if(!ctx) return;
+  if(performance.now()-smoothAt>=100) smooth();   // 平滑化とUI更新は100ms間隔で十分
+  runStepUI(ctx.currentTime);
+  if(!running) return;
+  seqTick();
+}
+
+async function startClock(){
+  if(clockNode) return;
+  if(ctx.audioWorklet){
+    const url=URL.createObjectURL(new Blob([CLOCK_SRC],{type:'text/javascript'}));
+    try{
+      await ctx.audioWorklet.addModule(url);
+      clockNode=new AudioWorkletNode(ctx,'clock',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[1]});
+      clockNode.port.onmessage=tick;
+      clockNode.connect(comp);   // 繋がないと process が呼ばれない。出力は無音なので混ざらない
+      return;
+    }catch(e){
+      clockNode=null;
+    }finally{
+      URL.revokeObjectURL(url);
+    }
+  }
+  clearInterval(fallbackTimer); fallbackTimer=setInterval(tick,25);
+}
+
+// 再生が実際に進み始めたかを最大1.5秒待って見る
+async function sinkAdvances(){
+  const t0=sink.currentTime;
+  for(let i=0;i<15;i++){
+    await new Promise(r=>setTimeout(r,100));
+    if(sink.currentTime>t0) return true;
+  }
+  return false;
+}
+
+async function routeToSink(){
+  if(sinkActive){
+    if(sink.paused) try{ await sink.play(); }catch(e){}
+    return true;
+  }
+  if(!sink){
+    sink=document.createElement('audio');
+    sink.setAttribute('playsinline','');
+    sink.autoplay=true;
+    sink.srcObject=streamDest.stream;
+    sink.addEventListener('pause',()=>reviveAudio());
+    sink.addEventListener('ended',()=>reviveAudio());
+    document.body.appendChild(sink);
+  }
+  try{
+    out.disconnect(ctx.destination);   // 二重に鳴らさないため先に切る
+    await sink.play();
+    if(await sinkAdvances()){
+      sinkActive=true;
+      if(!running) sink.pause();
+      return true;
+    }
+  }catch(e){ /* 下のフォールバックへ */ }
+  try{ sink.pause(); }catch(e){}
+  out.connect(ctx.destination);
+  return false;
+}
+
+// ロック画面 / コントロールセンター / CarPlay には現在のシーンを出す
+function mediaMetadata(){
+  return new MediaMetadata({title:sceneLabel(), artist:`Elevator Two ${VERSION}`});
+}
+function setupMediaSession(){
+  if(!('mediaSession' in navigator)) return;
+  try{
+    navigator.mediaSession.metadata=mediaMetadata();
+    navigator.mediaSession.setActionHandler('play', ()=>{ startAudio(); });
+    navigator.mediaSession.setActionHandler('pause',stopAudio);
+    // 「次へ」はロック画面からも押せるようにする
+    navigator.mediaSession.setActionHandler('nexttrack',()=>{ newWavePeriod(); enterScene(chooseScene()); });
+  }catch(e){}
+}
+function updateMediaMetadata(){
+  if(!('mediaSession' in navigator) || !navigator.mediaSession.metadata) return;
+  try{ navigator.mediaSession.metadata=mediaMetadata(); }catch(e){}
+}
+
+function reviveAudio(){
+  if(!running || !ctx) return;
+  if(ctx.state!=='running') ctx.resume().catch(()=>{});
+  if(sinkActive && sink && sink.paused) sink.play().catch(()=>{});
+}
+document.addEventListener('visibilitychange',reviveAudio);
+setInterval(reviveAudio,4000);
+
+/* ---- 再生 / 一時停止 ---- */
+const playBtn=document.getElementById('play');
+const pauseBtn=document.getElementById('pause');
+
+function setPowerUI(on){
+  playBtn.dataset.on=on?'1':'0';
+  pauseBtn.dataset.on=on?'0':'1';
+  playBtn.setAttribute('aria-pressed',on?'true':'false');
+  pauseBtn.setAttribute('aria-pressed',on?'false':'true');
+}
+setPowerUI(false);
+
+async function startAudio(){
+  if(running) return;
+  if(navigator.audioSession) try{ navigator.audioSession.type='playback'; }catch(e){}
+  if(!ctx) build();
+  await ctx.resume();
+  running=true;
+  setPowerUI(true);
+  stepIdx=0; barCount=0; nextStepTime=ctx.currentTime+.12;
+  phraseStartBar=0; sceneStartBar=0;
+  sceneBars=sceneLengthBars();
+  await startClock();
+  routeToSink().catch(()=>{});   // 完了を待たない
+  setupMediaSession();
+  if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
+}
+
+function stopAudio(){
+  if(!running) return;
+  running=false;
+  setPowerUI(false);
+  flushSteps();
+  uiStep=-1; renderSteps();
+  apply();
+  if(sink) sink.pause();
+  if('mediaSession' in navigator) navigator.mediaSession.playbackState='paused';
+}
+
+playBtn.addEventListener('click',()=>{ startAudio(); });
+pauseBtn.addEventListener('click',stopAudio);
+
+/* ---- タブ切替 (狭幅時のみ表示) ---- */
+const mainEl=document.getElementById('main');
+const tabBtns=[...document.querySelectorAll('#tabs .tab')];
+tabBtns.forEach(b=>b.addEventListener('click',()=>{
+  mainEl.dataset.tab=b.dataset.tab;
+  tabBtns.forEach(o=>o.setAttribute('aria-selected',String(o===b)));
+  resize(); // display:none 明けの canvas を再計測
+}));
+
+/* ---- ツールチップ ---- */
+const tipEl=document.getElementById('tip');
+let tipHost=null;
+const TIP_LIFE_MS=5000;
+let tipTimer=0;
+function showTip(el){
+  const txt=el.dataset.tip;
+  if(!txt) return;
+  clearTimeout(tipTimer);
+  tipEl.classList.remove('fade');
+  tipHost=el; tipEl.textContent=txt; tipEl.classList.add('on');
+  const r=el.getBoundingClientRect();
+  const tw=tipEl.offsetWidth, th=tipEl.offsetHeight;
+  let x=r.left, y=r.bottom+8;
+  if(y+th>innerHeight-8) y=Math.max(8, r.top-th-8);
+  if(x+tw>innerWidth-10) x=innerWidth-tw-10;
+  if(x<8) x=8;
+  tipEl.style.left=x+'px'; tipEl.style.top=y+'px';
+  tipTimer=setTimeout(fadeTip, TIP_LIFE_MS);
+}
+function fadeTip(){ tipHost=null; tipEl.classList.add('fade'); tipEl.classList.remove('on'); }
+function hideTip(){ clearTimeout(tipTimer); tipHost=null; tipEl.classList.remove('on','fade'); }
+// 引数名は t() (翻訳) と紛れないように node
+const nearest=node=>(node && node.closest) ? node.closest('[data-tip]') : null;
+document.addEventListener('mouseover',e=>{ const el=nearest(e.target); if(el&&el!==tipHost) showTip(el); });
+document.addEventListener('mouseout', e=>{ const el=nearest(e.target); if(el&&el===tipHost) hideTip(); });
+document.addEventListener('focusin',  e=>{ const el=nearest(e.target); if(el) showTip(el); });
+document.addEventListener('focusout', hideTip);
+window.addEventListener('blur', hideTip);
+
+/* ---- 表示言語の適用 ---- */
+const langBtn=document.getElementById('lang');
+function applyI18n(){
+  document.documentElement.lang=lang;
+  for(const el of document.querySelectorAll('[data-i18n]'))      el.textContent=t(el.dataset.i18n);
+  for(const el of document.querySelectorAll('[data-i18n-tip]'))  el.dataset.tip=t(el.dataset.i18nTip);
+  for(const el of document.querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label',t(el.dataset.i18nAria));
+  langBtn.textContent=lang.toUpperCase();
+  updateScene();   // シーン名も訳し分ける。MediaMetadata もここで追随する
+  showProgress();  // フレーズ名とイベント名も同じく
+  hideTip();
+}
+langBtn.addEventListener('click',()=>{
+  lang = lang==='ja' ? 'en' : 'ja';
+  try{ localStorage.setItem(LANG_KEY,lang); }catch(_){ /* 保存できなくても切り替えはできる */ }
+  applyI18n();
+});
+
+// 初期シーンは波の位置 (陰寄り) から引く
+wavePos=yyToWavePos(P.yy.def);
+newWavePeriod();
+enterScene(chooseScene());
+sceneBars=sceneLengthBars();
+applyI18n();
+showProgress();
+readout();
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&e.target===document.body){ e.preventDefault(); if(running) stopAudio(); else startAudio(); }
+});
+
+})();
+</script>
+</body>
+</html>
