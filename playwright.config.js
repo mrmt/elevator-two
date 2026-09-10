@@ -30,6 +30,15 @@ export default defineConfig({
   },
 
   projects: [
+    // 音の検証。ヘッドレスWebKitはAudioContextのresumeが不安定なためChromiumのみ
+    {
+      name: 'audio-chromium',
+      testMatch: /audio\.spec\.js/,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] },
+      },
+    },
     // 進行 (シーン / フレーズ / イベント)。AudioContext を動かすので Chromium のみ
     {
       name: 'transport-chromium',

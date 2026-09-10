@@ -211,6 +211,9 @@
   }
   .steps i{display:block;background:var(--line);height:22%;transition:background .1s,box-shadow .1s}
   .steps i.beat{height:44%}
+  /* 何が鳴る位置かを高さと色で示す。on = キックやスネア、hat = ハット */
+  .steps i.hat{background:#4D5A63;height:34%}
+  .steps i.on{background:#707C5D;height:66%}
   .steps i.now{background:var(--amber);box-shadow:0 0 7px rgba(216,163,64,.65)}
   .seqhead{display:flex;justify-content:space-between;align-items:baseline;margin-top:1.4rem}
 
@@ -332,7 +335,7 @@
 </main>
 
 <footer>
-  <span class="note" data-i18n="footer.note">まだ音は出ない。進行 (シーン / フレーズ / イベント) の骨組みだけが動いている</span>
+  <span class="note" data-i18n="footer.note">白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット</span>
 </footer>
 
 <div id="tip" role="tooltip"></div>
@@ -353,7 +356,7 @@ ja:{
   'pad.yy':'陰陽','pad.density':'密度','pad.bpm':'BPM','pad.bar':'小節',
   'pad.yin':'陰','pad.yang':'陽','pad.sparse':'疎','pad.dense':'密',
   'prog.phrase':'フレーズ','prog.event':'イベント','prog.wave':'陰陽の波',
-  'footer.note':'まだ音は出ない。進行 (シーン / フレーズ / イベント) の骨組みだけが動いている',
+  'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
   'param.glitch':'グリッチ','param.evolution':'展開','param.mutate':'変異','param.bpm':'BPM','param.glide':'推移時間',
@@ -396,7 +399,7 @@ en:{
   'pad.yy':'yin-yang','pad.density':'density','pad.bpm':'BPM','pad.bar':'bar',
   'pad.yin':'yin','pad.yang':'yang','pad.sparse':'sparse','pad.dense':'dense',
   'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave',
-  'footer.note':'No sound yet — only the transport (scene / phrase / event) is running',
+  'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
   'param.glitch':'glitch','param.evolution':'evolution','param.mutate':'mutate','param.bpm':'BPM','param.glide':'glide',
@@ -527,7 +530,65 @@ let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後�
    音を足すときはこの下に音源を作り、playStep() から鳴らす。
    ============================================================ */
 let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
+    mixFilter=null, dry=null, revSend=null, revGain=null, dlySend=null, delayNodes=null,
+    drumBus=null, drumSat=null, drumFilter=null,
+    noiseBuf=null, metalBuf=null,
     running=false, ready=false;
+
+// 鳴り終わったノードの切り離しは ctx.currentTime 基準の予定として持つ。
+// setTimeout に載せると、絞られた環境では発火しないクロージャがノードを掴んだまま溜まる
+const disposals=[];
+function disposeAt(node,at){ disposals.push({node,at}); }
+function runDisposals(now){
+  for(let i=disposals.length-1;i>=0;i--){
+    if(disposals[i].at>now) continue;
+    try{ disposals[i].node.disconnect(); }catch(e){}
+    disposals.splice(i,1);
+  }
+}
+
+/* ---- 音源の素材 ----
+   ドラムは D-10 のとおり全て自前合成する。打点ごとにオシレータを立てると数が多くなるので、
+   ノイズと金属質の倍音列は起動時に1本ずつ焼いて、打点では読み出しと包絡だけを作る */
+function noiseBuffer(sec){
+  const n=Math.floor(ctx.sampleRate*sec);
+  const buf=ctx.createBuffer(1,n,ctx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+  return buf;
+}
+// TR-808 のハイハットとシンバルは矩形波6基を非整数比で重ねて作る。その源をあらかじめ焼く
+function metalBuffer(sec){
+  const RATIO=[2.0,3.0,4.16,5.43,6.79,8.21], base=40;
+  const n=Math.floor(ctx.sampleRate*sec);
+  const buf=ctx.createBuffer(1,n,ctx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<n;i++){
+    const tt=i/ctx.sampleRate;
+    let v=0;
+    for(const r of RATIO) v+=Math.sign(Math.sin(2*Math.PI*base*r*tt));
+    d[i]=v/RATIO.length;
+  }
+  return buf;
+}
+
+/* ---- キット (docs/SCENES.md) ----
+   合成方式は共通で、パラメータの振り方だけが違う */
+const KITS={
+  deep:    {bd:{f0:132,f1:41,pd:.060,dec:1.05,click:.20,gain:1.05},
+            sd:{tone:180,noise:.50,dec:.20}, hh:{hp:6800,dec:.050,gain:.46}, oh:{dec:.36},
+            perc:'noise', percGain:.52, cowbell:false},
+  hard:    {bd:{f0:196,f1:48,pd:.028,dec:.52,click:.75,gain:1.00},
+            sd:{tone:224,noise:.78,dec:.16}, hh:{hp:9600,dec:.030,gain:.62}, oh:{dec:.22},
+            perc:'metal', percGain:.60, cowbell:false},
+  warm:    {bd:{f0:120,f1:45,pd:.075,dec:.72,click:.10,gain:.96},
+            sd:{tone:190,noise:.40,dec:.22}, hh:{hp:6200,dec:.062,gain:.40}, oh:{dec:.40},
+            perc:'fm',    percGain:.56, cowbell:false},
+  electro: {bd:{f0:168,f1:50,pd:.038,dec:.60,click:.55,gain:1.00},
+            sd:{tone:204,noise:.62,dec:.17}, hh:{hp:8300,dec:.040,gain:.58}, oh:{dec:.30},
+            perc:'metal', percGain:.60, cowbell:true},
+};
+const kit = () => KITS[SCENES[sceneIdx].kit];
 
 function build(){
   ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -556,15 +617,272 @@ function build(){
   streamDest = ctx.createMediaStreamDestination();
   out.connect(streamDest);   // バックグラウンド再生用の <audio> へ流す経路
 
+  // 全体フィルタ。第3層イベントの masterfilter がここを閉じて開く (D-4)
+  mixFilter = ctx.createBiquadFilter();
+  mixFilter.type='lowpass'; mixFilter.frequency.value=20000; mixFilter.Q.value=.7;
+  mixFilter.connect(master);
+
+  dry = ctx.createGain(); dry.gain.value=.9; dry.connect(mixFilter);
+
+  // リバーブ
+  const conv=ctx.createConvolver();
+  {
+    const sec=3.2, n=Math.floor(ctx.sampleRate*sec);
+    const buf=ctx.createBuffer(2,n,ctx.sampleRate);
+    for(let ch=0;ch<2;ch++){
+      const d=buf.getChannelData(ch);
+      for(let i=0;i<n;i++){
+        const u=i/n;
+        d[i]=(Math.random()*2-1)*Math.pow(1-u,2.6)*(1-Math.exp(-i/300));
+      }
+    }
+    conv.buffer=buf;
+  }
+  revGain=ctx.createGain(); revGain.gain.value=.4;
+  revSend=ctx.createGain(); revSend.gain.value=1;
+  revSend.connect(conv).connect(revGain).connect(mixFilter);
+
+  // ディレイ。左右で時間の違う2系統を持ち、テンポに同期させる (dub の中核になる)
+  const mkTap=(pan)=>{
+    const d=ctx.createDelay(4), fb=ctx.createGain(), lp=ctx.createBiquadFilter(),
+          pn=ctx.createStereoPanner(), o=ctx.createGain();
+    lp.type='lowpass'; lp.frequency.value=2600; fb.gain.value=.45; pn.pan.value=pan; o.gain.value=.5;
+    d.connect(lp).connect(fb).connect(d);
+    lp.connect(o).connect(pn).connect(mixFilter);
+    pn.connect(revSend);
+    return {d,fb,lp,o};
+  };
+  dlySend=ctx.createGain(); dlySend.gain.value=1;
+  const tapL=mkTap(-.75), tapR=mkTap(.75);
+  dlySend.connect(tapL.d); dlySend.connect(tapR.d);
+  delayNodes={tapL,tapR};
+
+  // ---- ドラムバス ----
+  // 打点はここへ集め、まとめて軽く飽和させてからフィルタを通す。
+  // drumFilter は sweep イベントが動かす
+  noiseBuf=noiseBuffer(2);
+  metalBuf=metalBuffer(1);
+
+  drumBus=ctx.createGain(); drumBus.gain.value=1;
+  drumSat=ctx.createWaveShaper();
+  {
+    const n=1024, curve=new Float32Array(n);
+    for(let i=0;i<n;i++){ const x=i/(n-1)*2-1; curve[i]=Math.tanh(x*1.9); }
+    drumSat.curve=curve; drumSat.oversample='2x';
+  }
+  drumFilter=ctx.createBiquadFilter();
+  drumFilter.type='lowpass'; drumFilter.frequency.value=20000; drumFilter.Q.value=1.0;
+  const drumPost=ctx.createGain(); drumPost.gain.value=1;
+  drumBus.connect(drumSat).connect(drumPost).connect(drumFilter);
+  build.drumPost=drumPost;
+  drumFilter.connect(dry);
+  const dSend=ctx.createGain(); dSend.gain.value=.5; drumFilter.connect(dSend).connect(revSend);
+  const dDly =ctx.createGain(); dDly.gain.value=.3;  drumFilter.connect(dDly).connect(dlySend);
+  build.drumSends={rev:dSend,dly:dDly};
+
   ready=true;
 }
 
+/* ============================================================
+   ドラム音源 (D-10)
+   すべて TR-808 の作り方に倣った合成。サンプルは持たない。
+   各関数は「その時刻に鳴らして、鳴り終わったら片付ける」だけを行う。
+   ============================================================ */
+function drumOut(pan){
+  const p=ctx.createStereoPanner(); p.pan.value=pan||0;
+  p.connect(drumBus);
+  return p;
+}
+function decayTo(gain,t,peak,dec,atk){
+  const a=atk||.001;
+  gain.setValueAtTime(0.0001,t);
+  gain.exponentialRampToValueAtTime(Math.max(peak,.0002),t+a);
+  gain.exponentialRampToValueAtTime(.0001,t+a+dec);
+}
+
+// バスドラム: 正弦波のピッチ落ち + 冒頭の短いクリック
+function bd(t,v){
+  const k=kit().bd, w=current.weight;
+  const o=ctx.createOscillator(), g=ctx.createGain(), p=drumOut(0);
+  o.type='sine';
+  const f0=k.f0*(1-w*.18), f1=k.f1*(1-w*.16);
+  o.frequency.setValueAtTime(f0,t);
+  o.frequency.exponentialRampToValueAtTime(f1,t+k.pd);
+  const dec=k.dec*(.8+w*.5);
+  decayTo(g.gain,t,v*k.gain*(.55+w*.6),dec);
+  o.connect(g).connect(p);
+  o.start(t); o.stop(t+dec+.05);
+  if(k.click>.02){
+    const c=ctx.createBufferSource(), cg=ctx.createGain(), hp=ctx.createBiquadFilter();
+    c.buffer=noiseBuf; c.loop=true; hp.type='highpass'; hp.frequency.value=1800;
+    decayTo(cg.gain,t,v*k.click*.5,.012);
+    c.connect(hp).connect(cg).connect(p);
+    c.start(t); c.stop(t+.05);
+    disposeAt(c,t+.1); disposeAt(hp,t+.1); disposeAt(cg,t+.1);
+  }
+  disposeAt(o,t+dec+.1); disposeAt(g,t+dec+.1); disposeAt(p,t+dec+.1);
+}
+
+// スネア: 正弦波2基 + ノイズ
+function sd(t,v){
+  const k=kit().sd, p=drumOut(-.05);
+  for(const [f,amp] of [[k.tone,.6],[k.tone*1.62,.4]]){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(f,t);
+    o.frequency.exponentialRampToValueAtTime(f*.82,t+.08);
+    decayTo(g.gain,t,v*amp*.5,.10);
+    o.connect(g).connect(p); o.start(t); o.stop(t+.2);
+    disposeAt(o,t+.25); disposeAt(g,t+.25);
+  }
+  const n=ctx.createBufferSource(), ng=ctx.createGain(), bp=ctx.createBiquadFilter();
+  n.buffer=noiseBuf; n.loop=true; bp.type='bandpass'; bp.frequency.value=1900; bp.Q.value=.7;
+  decayTo(ng.gain,t,v*k.noise*.5,k.dec);
+  n.connect(bp).connect(ng).connect(p);
+  n.start(t); n.stop(t+k.dec+.05);
+  disposeAt(n,t+k.dec+.1); disposeAt(bp,t+k.dec+.1); disposeAt(ng,t+k.dec+.1); disposeAt(p,t+k.dec+.15);
+}
+
+// クラップ: 短いノイズを数回連射してから尾を引かせる
+function cp(t,v){
+  const p=drumOut(.12), bp=ctx.createBiquadFilter();
+  bp.type='bandpass'; bp.frequency.value=1250; bp.Q.value=1.1; bp.connect(p);
+  for(let i=0;i<3;i++){
+    const n=ctx.createBufferSource(), g=ctx.createGain();
+    n.buffer=noiseBuf; n.loop=true;
+    const at=t+i*.011;
+    decayTo(g.gain,at,v*.42,.016);
+    n.connect(g).connect(bp); n.start(at); n.stop(at+.05);
+    disposeAt(n,at+.1); disposeAt(g,at+.1);
+  }
+  const n=ctx.createBufferSource(), g=ctx.createGain();
+  n.buffer=noiseBuf; n.loop=true;
+  decayTo(g.gain,t+.033,v*.30,.16);
+  n.connect(g).connect(bp); n.start(t+.033); n.stop(t+.25);
+  disposeAt(n,t+.3); disposeAt(g,t+.3); disposeAt(bp,t+.35); disposeAt(p,t+.35);
+}
+
+// ハイハット: 焼いておいた矩形波6基の倍音列をハイパスで削って包絡をかける
+function hh(t,v,open){
+  const k=kit(), dec = open ? k.oh.dec : k.hh.dec;
+  const n=ctx.createBufferSource(), hp=ctx.createBiquadFilter(), g=ctx.createGain(),
+        p=drumOut(open?.18:.10);
+  n.buffer=metalBuf; n.loop=true;
+  n.playbackRate.value=rand(.97,1.03);   // 打点ごとにわずかに揺らす
+  hp.type='highpass'; hp.frequency.value=k.hh.hp;
+  decayTo(g.gain,t,v*k.hh.gain*(open?.85:1),dec);
+  n.connect(hp).connect(g).connect(p);
+  n.start(t+rand(0,.004)); n.stop(t+dec+.05);
+  disposeAt(n,t+dec+.1); disposeAt(hp,t+dec+.1); disposeAt(g,t+dec+.1); disposeAt(p,t+dec+.15);
+}
+
+// シンバル: ハイハットと同じ源を低めのバンドパスで長く伸ばす
+function cy(t,v){
+  const n=ctx.createBufferSource(), bp=ctx.createBiquadFilter(), g=ctx.createGain(), p=drumOut(-.3);
+  n.buffer=metalBuf; n.loop=true;
+  bp.type='bandpass'; bp.frequency.value=5200; bp.Q.value=.5;
+  decayTo(g.gain,t,v*.30,1.25);
+  n.connect(bp).connect(g).connect(p);
+  n.start(t); n.stop(t+1.4);
+  disposeAt(n,t+1.5); disposeAt(bp,t+1.5); disposeAt(g,t+1.5); disposeAt(p,t+1.55);
+}
+
+// カウベル: 矩形波2基。electro のキットだけが使う
+function cb(t,v){
+  const p=drumOut(.3), bp=ctx.createBiquadFilter();
+  bp.type='bandpass'; bp.frequency.value=2640; bp.Q.value=1.4; bp.connect(p);
+  for(const f of [540,800]){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='square'; o.frequency.value=f;
+    decayTo(g.gain,t,v*.20,.34);
+    o.connect(g).connect(bp); o.start(t); o.stop(t+.4);
+    disposeAt(o,t+.45); disposeAt(g,t+.45);
+  }
+  disposeAt(bp,t+.5); disposeAt(p,t+.5);
+}
+
+// リム: ごく短い矩形波の打点
+function rim(t,v,pan){
+  const o=ctx.createOscillator(), g=ctx.createGain(), p=drumOut(pan);
+  o.type='square'; o.frequency.value=rand(1500,1900);
+  decayTo(g.gain,t,v*.20,.028);
+  o.connect(g).connect(p); o.start(t); o.stop(t+.06);
+  disposeAt(o,t+.1); disposeAt(g,t+.1); disposeAt(p,t+.1);
+}
+
+// パーカッション。キットに応じて3通りに作り分ける (D-3 の「FM も有効」はここ)
+function perc(t,v,pan,tone){
+  const k=kit();
+  if(k.perc==='fm'){
+    const car=ctx.createOscillator(), mod=ctx.createOscillator(),
+          md=ctx.createGain(), g=ctx.createGain(), p=drumOut(pan);
+    car.type='sine'; mod.type='sine';
+    const f=220*Math.pow(2,tone);
+    car.frequency.value=f; mod.frequency.value=f*2.47;
+    md.gain.value=f*3.2;
+    mod.connect(md).connect(car.frequency);
+    decayTo(g.gain,t,v*k.percGain*.5,.18);
+    car.connect(g).connect(p);
+    car.start(t); mod.start(t); car.stop(t+.3); mod.stop(t+.3);
+    disposeAt(car,t+.35); disposeAt(mod,t+.35); disposeAt(md,t+.35);
+    disposeAt(g,t+.35); disposeAt(p,t+.35);
+    return;
+  }
+  const n=ctx.createBufferSource(), f=ctx.createBiquadFilter(), g=ctx.createGain(), p=drumOut(pan);
+  n.buffer = k.perc==='metal' ? metalBuf : noiseBuf; n.loop=true;
+  n.playbackRate.value=Math.pow(2,tone);
+  f.type='bandpass'; f.frequency.value=800*Math.pow(2,tone+1); f.Q.value=k.perc==='metal'?2.2:1.0;
+  const dec = k.perc==='metal' ? .12 : .09;
+  decayTo(g.gain,t,v*k.percGain*.45,dec);
+  n.connect(f).connect(g).connect(p);
+  n.start(t); n.stop(t+dec+.05);
+  disposeAt(n,t+dec+.1); disposeAt(f,t+dec+.1); disposeAt(g,t+dec+.1); disposeAt(p,t+dec+.15);
+}
+
 /* ---- 現在値をオーディオに反映 ---- */
-// 音源がまだ無いのでマスター音量だけ。音を足したらここが本体になる
 function apply(){
   if(!ctx || !ready) return;
-  const tm=ctx.currentTime, T=.25;
+  const tm=ctx.currentTime, T=.25, c=current;
   master.gain.setTargetAtTime(running ? volume/100 : 0, tm, T);
+
+  // 押し出し: 飽和段の入りを持ち上げ、そのぶんを後段で戻す
+  const drive=.55+c.drive*1.5;
+  drumBus.gain.setTargetAtTime(drive,tm,T);
+  build.drumPost.gain.setTargetAtTime(1/(.7+c.drive*.9),tm,T);
+
+  // 空間: リバーブとディレイの量。ディレイはテンポに同期させる
+  revGain.gain.setTargetAtTime(.12+c.space*.55,tm,T);
+  const sd=stepDur();
+  delayNodes.tapL.d.delayTime.setTargetAtTime(sd*3,tm,1.2);    // 付点8分
+  delayNodes.tapR.d.delayTime.setTargetAtTime(sd*4.5,tm,1.2);  // ずらした返し
+  const dubbing = phrase==='dubout';
+  if(tm>evDelayUntil){
+    delayNodes.tapL.fb.gain.setTargetAtTime(.28+c.space*.34+(dubbing?.22:0),tm,T);
+    delayNodes.tapR.fb.gain.setTargetAtTime(.24+c.space*.32+(dubbing?.22:0),tm,T);
+  }
+  delayNodes.tapL.o.gain.setTargetAtTime(.18+c.space*.5,tm,T);
+  delayNodes.tapR.o.gain.setTargetAtTime(.16+c.space*.45,tm,T);
+  build.drumSends.dly.gain.setTargetAtTime(.12+c.space*.35+(dubbing?.35:0),tm,T);
+  build.drumSends.rev.gain.setTargetAtTime(.15+c.space*.5,tm,T);
+
+  // ドラムのフィルタはフレーズ型で開き具合が変わる。
+  // sweep イベントが動かしている間は触らない (取り合いになるため)
+  if(tm>evFilterUntil){
+    drumFilter.frequency.setTargetAtTime(phraseCutoff(),tm,T*2);
+    drumFilter.Q.setTargetAtTime(1.0,tm,T);
+  }
+  if(tm>evMasterUntil) mixFilter.frequency.setTargetAtTime(20000,tm,T);
+}
+
+// フレーズ型ごとのドラムの開き具合。build は16小節かけて開いていく (D-9 のレイヤー累積に対応)
+function phraseCutoff(){
+  const u=clamp((barCount-phraseStartBar)/PHRASE_BARS);
+  switch(phrase){
+    case 'build':  return 900*Math.pow(20000/900,u);
+    case 'break':  return 2600;
+    case 'drop':   return 18000;
+    case 'dubout': return 4200;
+    default:       return 11000;
+  }
 }
 
 /* ============================================================
@@ -644,7 +962,7 @@ function nextPhrase(){
 /* ---- 第3層 イベント (4 / 8 小節の節目) ---- */
 let lastEvent='—', lastEventBar=-99;
 
-function maybeEvent(bar){
+function maybeEvent(bar,time){
   const sc=SCENES[sceneIdx];
   // ブレイク中と定常では起きやすさが違う。build の途中は仕掛けを増やす
   const base = phrase==='build' ? .55 : phrase==='plateau' ? .30 : .40;
@@ -657,9 +975,183 @@ function maybeEvent(bar){
   let r=Math.random()*sum;
   for(let i=0;i<EVENTS.length;i++){
     r-=weights[i];
-    if(r<=0){ lastEvent=EVENTS[i].id; lastEventBar=bar; break; }
+    if(r<=0){ lastEvent=EVENTS[i].id; lastEventBar=bar; fireEvent(lastEvent,bar,time); break; }
   }
   showProgress();
+}
+
+/* ============================================================
+   リズム生成 (D-7)
+   ------------------------------------------------------------
+   トラックごとに別の方式で作る。一律に確率を回すと、土台が崩れるか
+   ハットがベタになるかのどちらかに落ちるため。
+   各トラックは16個の強さ (0 なら鳴らさない) を持つ。
+   ============================================================ */
+const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[]};
+let hatRot=0, percPer=[3,5], percOff=[0,0], kickVariant=null;
+
+// ユークリッドリズム E(k,n)。k個を n個の枠へ均した位置に置く。
+// Bjorklund の厳密な手続きではないが、等間隔に散る点は同じで、定型から外れた並びが得られる
+function euclid(k,n){
+  const out=new Array(n).fill(false);
+  if(k<=0) return out;
+  for(let i=0;i<k;i++) out[Math.floor(i*n/k)%n]=true;
+  return out;
+}
+
+// electro funk 局面のキック。4つ打ちを離れてシンコペーションへ寄る (D-3 の B 要素)
+const FUNK_KICK=[
+  [0,3,6,10],
+  [0,6,10,12],
+  [0,4,7,10,14],
+  [0,3,8,11],
+];
+// キックの変形演算子。節目でだけ呼ばれる (D-7)
+const KICK_OPS=['skip','push','double','ghost'];
+
+function applyKickOp(k,op){
+  switch(op){
+    case 'skip':   k[12]=0; break;                       // 4拍目を抜く
+    case 'push':   k[12]=0; k[11]=1; break;              // 4拍目を食う
+    case 'double': k[10]=Math.max(k[10],.85); break;     // 8分の裏を足す
+    case 'ghost':  k[14]=Math.max(k[14],.45); break;     // 小さく差し込む
+  }
+}
+
+// 小節ごとの並びを引き直す。onBar() の頭で呼ぶ
+function regenerate(bar){
+  const sc=SCENES[sceneIdx], d=current.density;
+  const funk = sc.group==='funk';
+  const quiet = phrase==='break', dub = phrase==='dubout';
+
+  // --- 変異 (D-7)。トラックごとに率を分け、土台は守る
+  const mu=current.mutate;
+  if(Math.random()<mu*.9) hatRot=Math.floor(Math.random()*16);
+  if(Math.random()<mu*.7){
+    percPer=[pick([3,5,7]),pick([5,7,11])];
+    percOff=[Math.floor(Math.random()*16),Math.floor(Math.random()*16)];
+  }
+
+  // --- キック: 4つ打ちを基本堅持。節目でだけ崩す
+  const k=new Array(16).fill(0);
+  if(funk && !quiet){
+    for(const i of pick(FUNK_KICK)) k[i]=1;
+  }else{
+    for(const i of [0,4,8,12]) k[i]=1;
+  }
+  if(dub){ k[4]=0; k[12]=0; }               // dub 局面は2拍ぶんだけ残す
+  // 8小節の終わりと16小節の終わりでのみ変形する。それ以外の小節は素のまま
+  const edge = (bar%8===7);
+  kickVariant = edge ? pick(KICK_OPS) : null;
+  if(kickVariant) applyKickOp(k,kickVariant);
+  if(quiet) k.fill(0);
+  k[0]=quiet?0:Math.max(k[0],1);            // 小節頭は変異させない (ブレイク中を除く)
+  seq.kick=k;
+
+  // --- スネア / クラップ: 2・4拍が基本。funk ではゴーストを足す
+  const sn=new Array(16).fill(0), cl=new Array(16).fill(0);
+  if(!quiet && !dub){
+    if(sc.kit==='electro' || funk){ cl[4]=1; cl[12]=1; }
+    else { sn[4]=1; sn[12]=1; }
+    if(funk){
+      if(Math.random()<.6) sn[7]=.35;
+      if(Math.random()<.4) sn[14]=.3;
+    }
+    if(edge && Math.random()<.5) sn[15]=.5;   // 小節をまたぐ手前の合図
+  }
+  seq.snare=sn; seq.clap=cl;
+
+  // --- ハット: ユークリッドを主軸に、密度で間引き、拍で強弱を付ける
+  const e=euclid(sc.hatK,16);
+  const hat=new Array(16).fill(0), oh=new Array(16).fill(0);
+  for(let i=0;i<16;i++){
+    if(!e[(i+hatRot)%16]) continue;
+    if(Math.random()>0.45+d*.55) continue;      // 密度が低いと抜ける
+    hat[i]=(i%4===0?.9:i%2===0?.7:.55)*rand(.85,1.12);
+  }
+  if(!quiet && Math.random()<.55){
+    // オープンハットは裏拍にひとつだけ。定型を避けるため位置は毎小節引き直す
+    const cand=[2,6,10,14].filter(i=>hat[i]>0 || Math.random()<.4);
+    if(cand.length){ const i=pick(cand); oh[i]=.8; hat[i]=0; }
+  }
+  seq.hat=hat; seq.ohat=oh;
+
+  // --- パーカッション: 互いに素な周期を回してポリリズムを作る (D-7)。
+  // 小節をまたいで模様が変わっていくよう、位置は通し番号で決める
+  const p1=new Array(16).fill(0), p2=new Array(16).fill(0);
+  for(let i=0;i<16;i++){
+    const g=bar*16+i;
+    if(g%percPer[0]===percOff[0]%percPer[0] && Math.random()<.35+d*.5) p1[i]=rand(.5,.9);
+    if(g%percPer[1]===percOff[1]%percPer[1] && Math.random()<.25+d*.45) p2[i]=rand(.4,.8);
+  }
+  seq.perc1=p1; seq.perc2=p2;
+
+  // --- リム: 陰のキットだけ、まばらに
+  const rm=new Array(16).fill(0);
+  if(sc.kit==='deep' || dub){
+    for(let i=0;i<16;i++) if(Math.random()<.06+d*.10) rm[i]=rand(.4,.8);
+  }
+  seq.rim=rm;
+}
+
+/* ============================================================
+   第3層イベントの実行
+   maybeEvent() が選んだ仕掛けを、実際に音へ効かせる。
+   小節をまたぐものは「いつまで効いているか」を音声時計で持つ。
+   ============================================================ */
+let evFilterUntil=0, evMasterUntil=0, evDelayUntil=0;
+let muteHatUntilBar=-1, muteKickUntilBar=-1, glitchBar=-1;
+
+function fireEvent(id,bar,time){
+  const barSec=stepDur()*16;
+  switch(id){
+    case 'sweep':{
+      // ドラムだけを閉じてから開き直す。2小節かけて戻る
+      const f=drumFilter.frequency;
+      f.cancelScheduledValues(time);
+      f.setValueAtTime(Math.max(400,phraseCutoff()*.06),time);
+      f.exponentialRampToValueAtTime(Math.max(800,phraseCutoff()),time+barSec*2);
+      drumFilter.Q.setValueAtTime(3.5,time);
+      drumFilter.Q.linearRampToValueAtTime(1.0,time+barSec*2);
+      evFilterUntil=time+barSec*2;
+      break;
+    }
+    case 'masterfilter':{
+      const f=mixFilter.frequency;
+      f.cancelScheduledValues(time);
+      f.setValueAtTime(700,time);
+      f.exponentialRampToValueAtTime(20000,time+barSec*2);
+      evMasterUntil=time+barSec*2;
+      break;
+    }
+    case 'hatdrop':  muteHatUntilBar=bar+1; break;
+    case 'kickdrop': muteKickUntilBar=bar+1; break;
+    case 'glitch':   glitchBar=bar; break;
+    case 'feedback':{
+      // ディレイのフィードバックを跳ね上げ、2小節かけて戻す
+      for(const tap of [delayNodes.tapL,delayNodes.tapR]){
+        tap.fb.gain.cancelScheduledValues(time);
+        tap.fb.gain.setValueAtTime(.86,time);
+        tap.fb.gain.linearRampToValueAtTime(.4,time+barSec*2);
+      }
+      evDelayUntil=time+barSec*2;
+      break;
+    }
+    case 'reverse':{
+      // 逆再生風の立ち上がり。次の小節の頭へ向けて膨らむ
+      const n=ctx.createBufferSource(), bp=ctx.createBiquadFilter(), g=ctx.createGain();
+      n.buffer=noiseBuf; n.loop=true;
+      bp.type='bandpass'; bp.frequency.value=1200; bp.Q.value=.9;
+      bp.frequency.linearRampToValueAtTime(5200,time+barSec);
+      g.gain.setValueAtTime(.0001,time);
+      g.gain.exponentialRampToValueAtTime(.22,time+barSec*.98);
+      g.gain.exponentialRampToValueAtTime(.0001,time+barSec*1.02);
+      n.connect(bp).connect(g).connect(drumBus);
+      n.start(time); n.stop(time+barSec*1.1);
+      disposeAt(n,time+barSec*1.2); disposeAt(bp,time+barSec*1.2); disposeAt(g,time+barSec*1.2);
+      break;
+    }
+  }
 }
 
 /* ============================================================
@@ -676,9 +1168,33 @@ function bpmNow(){
 }
 function stepDur(){ return 60/bpmNow()/4; }   // 16分音符
 
-// 1ステップぶんの予約。音を足すのはここ
+// 1ステップぶんの予約。並びに従ってドラムを鳴らす
 function playStep(i,time){
   showStepAt(i,time);
+  if(!ready) return;
+  const sw=stepDur(), k=kit();
+  const hatOff  = barCount<=muteHatUntilBar;
+  const kickOff = barCount<=muteKickUntilBar;
+
+  if(seq.kick[i]  && !kickOff) bd(time,seq.kick[i]);
+  if(seq.snare[i]) sd(time,seq.snare[i]);
+  if(seq.clap[i])  cp(time,seq.clap[i]);
+  if(!hatOff){
+    // ハットだけは打点をわずかにずらす。機械的に揃いすぎるのを避ける (D-7)
+    if(seq.hat[i])  hh(time+rand(-.002,.003),seq.hat[i],false);
+    if(seq.ohat[i]) hh(time,seq.ohat[i],true);
+  }
+  if(seq.perc1[i]) perc(time,seq.perc1[i],-.45,.2);
+  if(seq.perc2[i]) perc(time,seq.perc2[i], .50,1.1);
+  if(seq.rim[i])   rim(time,seq.rim[i],rand(-.6,.6));
+  if(k.cowbell && i===6 && Math.random()<.22) cb(time,.7);
+  if(i===0 && phrase==='drop') cy(time,.8);   // 戻しの頭にシンバル
+
+  // グリッチ: その小節の終盤だけ32分で刻み直す (D-3 の C 要素)
+  if(barCount===glitchBar && i>=12){
+    perc(time+sw*.5,.55,rand(-.6,.6),rand(.5,1.6));
+    if(i===15) hh(time+sw*.75,.5,false);
+  }
 }
 
 function showStepAt(idx,at){ uiSteps.push({idx,at}); }
@@ -693,15 +1209,17 @@ function runStepUI(now){
   if(bestIdx>=0 && bestIdx!==uiStep){ uiStep=bestIdx; renderSteps(); }
 }
 
-// 小節の頭で3階層を進める。ここが進行の中心
-function onBar(bar){
+// 小節の頭で3階層を進める。ここが進行の中心。
+// フレーズとシーンを先に決めてから並びを引き直す (両者が並びの前提になるため)
+function onBar(bar,time){
   if(bar-phraseStartBar>=PHRASE_BARS) nextPhrase();
-  if(bar>0 && bar%4===0) maybeEvent(bar);   // 開始直後の1小節目にいきなり仕掛けを出さない
   // シーンの切り替えはフレーズの切れ目でのみ起きる。途中で切らない
   if(bar-sceneStartBar>=sceneBars && bar===phraseStartBar){
     newWavePeriod();
     enterScene(chooseScene());
   }
+  regenerate(bar);
+  if(bar>0 && bar%4===0) maybeEvent(bar,time);   // 開始直後の1小節目にいきなり仕掛けを出さない
   showProgress();
 }
 
@@ -709,7 +1227,7 @@ function seqTick(){
   const now=ctx.currentTime;
   const ahead=.12;   // 先読み。これより先の予約はしない
   while(nextStepTime < now+ahead){
-    if(stepIdx===0) onBar(barCount);
+    if(stepIdx===0) onBar(barCount,nextStepTime);
     playStep(stepIdx,nextStepTime);
     nextStepTime += stepDur();
     stepIdx++;
@@ -856,7 +1374,9 @@ for(let i=0;i<16;i++) stepsEl.appendChild(document.createElement('i'));
 function renderSteps(){
   const cells=stepsEl.children;
   for(let i=0;i<16;i++){
-    cells[i].className=(i%4===0?'beat':'')+(i===uiStep?' now':'');
+    const on = (seq.kick[i]||0)>0 || (seq.snare[i]||0)>0 || (seq.clap[i]||0)>0;
+    const hat = (seq.hat[i]||0)>0 || (seq.ohat[i]||0)>0;
+    cells[i].className=(i%4===0?'beat ':'')+(on?'on ':hat?'hat ':'')+(i===uiStep?'now':'');
   }
 }
 renderSteps();
@@ -987,6 +1507,7 @@ function tick(){
   if(!ctx) return;
   if(performance.now()-smoothAt>=100) smooth();   // 平滑化とUI更新は100ms間隔で十分
   runStepUI(ctx.currentTime);
+  runDisposals(ctx.currentTime);   // 止めたあとも鳴り終わりの片付けだけは続ける
   if(!running) return;
   seqTick();
 }
@@ -1097,6 +1618,8 @@ async function startAudio(){
   stepIdx=0; barCount=0; nextStepTime=ctx.currentTime+.12;
   phraseStartBar=0; sceneStartBar=0;
   sceneBars=sceneLengthBars();
+  muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1;
+  evFilterUntil=0; evMasterUntil=0; evDelayUntil=0;
   await startClock();
   routeToSink().catch(()=>{});   // 完了を待たない
   setupMediaSession();
@@ -1107,6 +1630,7 @@ function stopAudio(){
   if(!running) return;
   running=false;
   setPowerUI(false);
+  muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1;
   flushSteps();
   uiStep=-1; renderSteps();
   apply();
