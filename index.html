@@ -703,12 +703,12 @@ const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 const P = {
   yy:        {def:.20},   // 0=陰 (dub) 〜 1=陽 (高揚)
   density:   {def:.45},
-  weight:    {def:.55},
+  weight:    {def:.10},
   drive:     {def:.50},
-  space:     {def:.55},
-  glitch:    {def:.25},
-  evolution: {def:.45},
-  mutate:    {def:.30},
+  space:     {def:.10},
+  glitch:    {def:.90},
+  evolution: {def:.90},
+  mutate:    {def:.80},
 };
 const SLIDERS = ['weight','drive','space','glitch','evolution'];
 const CLOCKP  = ['mutate'];
@@ -763,7 +763,7 @@ for(const k in P){ target[k]=P[k].def; current[k]=P[k].def; }
 let ytKey='', videoOn=false, ytReady=false, ytPlayers=[null,null], ytLayer=0,
     ytList=[], ytPos=0, ytSceneId=null, ytBusy=false, ytFailed=false, ytLastId=null;
 
-let glide=12;        // 秒。目標に到達するおおよその時間
+let glide=5;         // 秒。目標に到達するおおよその時間
 let volume=80;
 let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後で動く (D-11)
 
