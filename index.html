@@ -1733,7 +1733,9 @@ function apply(){
       // 上の層ほど遅れて出る。剥がすときは速く落とす。
       // 連打のときは、持続音にあたる下2層を止めて代わりに連打が鳴る (D-34)
       const on = i<L && !(padChop && i<2);
-      padLayer[i].gain.setTargetAtTime(on?(i<2?1:.7):0, tm, on?T*4:T);
+      // 下2層が持続音、上2層がアルペジオと高域リフ。
+      // 持続音は前に出すぎるので、上の層より低く敷く
+      padLayer[i].gain.setTargetAtTime(on?(i<2?.55:.7):0, tm, on?T*4:T);
     }
     // 連打の量とディレイ。ディレイはテンポに同期させ、左右で16分3つと5つ
     chopBus.gain.setTargetAtTime(padChop?(.7*(.6+c.density*.5)):0,tm,T*2);
@@ -1840,7 +1842,7 @@ function enterScene(idx,{manual=false,keepKey=false}={}){
   reseedPattern();    // 並びも引き直す。前のシーンの模様を持ち越さない
   pickProg();         // 回路が変わるので和音の進行も選び直す
   // 陽と electro funk では刻む音になりやすく、陰では持続する音になりやすい
-  bassTight = Math.random() < (SCENES[idx].yy*.5 + (SCENES[idx].group==='funk'?.35:.05));
+  bassTight = Math.random() < .5;   // 持続する音色とタイトな音色を半々で引く (D-25)
   // コード弾きを持続音にするか連打にするか (D-34)。出やすさはシーンごとに持つ
   padChop = Math.random() < (SCENES[idx].chop||0);
   chordAt=-999;       // 次の小節で必ず和音を組み直す
