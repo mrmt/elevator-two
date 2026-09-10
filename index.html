@@ -1545,23 +1545,30 @@ function bassBar(bar,R,kickPat,scIdx,phr){
   for(const i of grid){ if(i===0 || R()<busy) hits.push(i); }
   if(!hits.length) hits.push(0);
 
+  // ルート以外の音は1小節にひとつだけ選び、それを使い回す。
+  // 打点ごとに引き直すと旋律が動きすぎる (D-19)
   const sumW=iv.reduce((a,_,k)=>a+(CHORD_DEG_W[k]||1),0);
+  let alt=0;
+  {
+    let r=R()*sumW;
+    for(let k=0;k<iv.length;k++){
+      r-=(CHORD_DEG_W[k]||1);
+      if(r<=0){ alt=iv[k]%12; break; }   // 9th などは1オクターブ下げて低音域に置く
+    }
+  }
+  // ルートから離れる頻度。陰では動かず、陽と funk で少し動く
+  const moveP=clamp(.10+yy*.18+(sc.group==='funk'?.12:0));
+  const lastHit=hits[hits.length-1];
+
   for(let n=0;n<hits.length;n++){
     const i=hits[n];
     let deg=0;
-    if(i!==0){
-      if(R()<OFF_CHORD_P){
-        // 和音から逸れる。音階の中から選ぶので、外れても調からは外れない
-        deg=sl[Math.floor(R()*sl.length)];
-      }else{
-        let r=R()*sumW;
-        for(let k=0;k<iv.length;k++){
-          r-=(CHORD_DEG_W[k]||1);
-          if(r<=0){ deg=iv[k]%12; break; }   // 9th などは1オクターブ下げて低音域に置く
-        }
-      }
+    if(i!==0 && R()<moveP){
+      // 和音から逸れることもあるが、音階の中から選ぶので調からは外れない
+      deg = R()<OFF_CHORD_P ? sl[Math.floor(R()*sl.length)] : alt;
     }
-    const oct = (yy>.6 && R()<.22) ? 12 : 0;
+    // オクターブ上げは小節の最後の打点だけ。ここも動きの元になるので控える
+    const oct = (i===lastHit && i!==0 && yy>.6 && R()<.12) ? 12 : 0;
     const next = n+1<hits.length ? hits[n+1] : 16;
     const steps=Math.max(1,(next-i)*legato);
     // キックと同じ位置はアクセント。フィルタの叩き方が変わる
