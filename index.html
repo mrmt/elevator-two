@@ -2603,22 +2603,59 @@ function loadYT(){
   return loadYT._p;
 }
 
-async function ytSearch(sc){
-  const cached=ytCache()[sc.id];
-  if(cached && Date.now()-cached.at<YT_CACHE_TTL) return cached.items;
-  const q=I18N.en[`scene.${sc.id}.name`];
-  const url='https://www.googleapis.com/youtube/v3/search'
+/* 検索語。シーンの英語名だけでは一般的すぎて結果がばらけるので、
+   docs/SCENES.md に書いたそのシーンの性格を語に落として添える (D-33)。
+   さらに全シーン共通で footage を足し、素材寄りの動画に寄せる */
+const SCENE_QUERY={
+  submerge:'underwater deep dark slow',
+  moss:    'forest floor damp macro',
+  frost:   'ice crystals macro',
+  pulse:   'neon night city rain',
+  drowse:  'dawn haze mist slow',
+  glass:   'reflection refraction light',
+  dusk:    'skyline golden hour',
+  gear:    'machinery factory mechanism',
+  bounce:  'street night traffic motion',
+  steel:   'industrial mill welding',
+  spark:   'welding close up slow motion',
+  daybreak:'sunrise clouds timelapse',
+  dash:    'highway speed motion blur',
+  jubilee: 'fireworks celebration lights',
+};
+const YT_COMMON='footage';
+
+function ytQuery(sc){
+  const name=I18N.en[`scene.${sc.id}.name`];
+  return [name, SCENE_QUERY[sc.id]||'', YT_COMMON].filter(Boolean).join(' ');
+}
+
+function ytUrl(q,{long=true}={}){
+  return 'https://www.googleapis.com/youtube/v3/search'
     +'?part=snippet&type=video&maxResults=12&safeSearch=moderate'
     +'&videoEmbeddable=true&videoLicense=creativeCommon'
+    +'&order=viewCount'                       // 関連度順より当たり外れが少ない
+    +(long?'&videoDuration=long':'')          // 20分以上。途中から流しても絵が続く
     +`&q=${encodeURIComponent(q)}&key=${encodeURIComponent(ytKey)}`;
+}
+
+async function ytFetch(url){
   const r=await fetch(url);
   if(!r.ok) throw new Error('search '+r.status);
   const j=await r.json();
-  const items=(j.items||[]).map(it=>({
+  return (j.items||[]).map(it=>({
     id:it.id&&it.id.videoId,
     title:(it.snippet&&it.snippet.title)||'',
     by:(it.snippet&&it.snippet.channelTitle)||'',
   })).filter(v=>v.id);
+}
+
+async function ytSearch(sc){
+  const cached=ytCache()[sc.id];
+  if(cached && Date.now()-cached.at<YT_CACHE_TTL) return cached.items;
+  const q=ytQuery(sc);
+  let items=await ytFetch(ytUrl(q));
+  // 長さで絞ると何も見つからないシーンがありうる。そのときだけ長さの条件を外して引き直す
+  if(!items.length) items=await ytFetch(ytUrl(q,{long:false}));
   ytCachePut(sc.id,items);
   return items;
 }

@@ -47,6 +47,8 @@ test('キーが無ければ何も通信せず、背景も変わらない', async
 test('キーを入れると背景に動画が出る', async ({ page }) => {
   await stubYouTube(page);
   await page.goto('/index.html');
+  // 開始時のシーンは陰陽の波から引かれるので、検索語を確かめるために選び直す
+  await page.locator('.scenebtn').nth(0).click();   // 潜行 submerge
   await page.locator('#ytkey').fill('test-key');
   await page.locator('#ytkey').blur();
 
@@ -58,7 +60,13 @@ test('キーを入れると背景に動画が出る', async ({ page }) => {
       page.evaluate(() => window.__searches[0]));
   expect(url).toContain('videoLicense=creativeCommon');
   expect(url).toContain('videoEmbeddable=true');
-  const scene = (await page.locator('#lang').textContent()) && null;
+  expect(url).toContain('videoDuration=long');
+  expect(url).toContain('order=viewCount');
+  // シーンの英語名に、そのシーンの性格を表す語と共通の footage が付く (D-33)
+  const q = decodeURIComponent(new URL(url).searchParams.get('q'));
+  expect(q).toContain('submerge');
+  expect(q).toContain('footage');
+  expect(q.split(' ').length).toBeGreaterThan(2);
   // 題名と制作者が出る (CC BY の表示義務)
   await expect(page.locator('#vcap')).toContainText('CC BY', { timeout: 8000 });
   await expect(page.locator('#vcap')).toContainText('channel');
