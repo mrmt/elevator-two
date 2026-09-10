@@ -64,6 +64,15 @@ export default defineConfig({
       testMatch: /interaction\.spec\.js/,
       use: { ...devices['iPhone 14'], locale: 'en-US' },
     },
+    // 背景の動画。YouTube へは繋がず、IFrame API と検索を差し替えて見る
+    {
+      name: 'video-chromium',
+      testMatch: /video\.spec\.js/,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] },
+      },
+    },
     {
       name: 'i18n-chromium',
       testMatch: /i18n\.spec\.js/,

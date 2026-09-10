@@ -198,8 +198,8 @@ test('連続変形の遷移ではブレイクを挟まない', async ({ page }) 
   const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
   await page.locator('#next').click();
   await expect(page.locator('#pphrase')).toContainText('連続変形', { timeout: 8000 });
-  // ブレイクにはならない
-  await expect(page.locator('#pphrase')).not.toContainText('ブレイク');
+  // ブレイクにはならない。表示の方式名にも「ブレイク」が入りうるので、矢印より前だけを見る
+  expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('ブレイク');
 
   // 16小節かけて乗り換わる
   await expect.poll(async () => (await page.locator('#scenename').textContent()).replace(' (edit)', ''),
@@ -218,7 +218,7 @@ test('ミックスの遷移では新旧が重なる', async ({ page }) => {
   const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
   await page.locator('#next').click();
   await expect(page.locator('#pphrase')).toContainText('ミックス', { timeout: 8000 });
-  await expect(page.locator('#pphrase')).not.toContainText('ブレイク');
+  expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('ブレイク');
 
   await expect.poll(async () => (await page.locator('#scenename').textContent()).replace(' (edit)', ''),
     { timeout: 60000, intervals: [500] }).not.toBe(before);
@@ -227,19 +227,25 @@ test('ミックスの遷移では新旧が重なる', async ({ page }) => {
 });
 
 test('ブレイクは1小節を超えない', async ({ page }) => {
-  test.setTimeout(120000);
-  // D-24。霜 (frost) はブレイクの出やすいシーン
-  await page.locator('.scenebtn').nth(2).click();
+  test.setTimeout(90000);
+  // D-24。フレーズ型の break は出るかどうかが確率なので、確実に起こせる経路で見る。
+  // ブレイクを挟む遷移では、乗り換えの直前1小節だけが必ずブレイクになる
+  await page.goto('/index.html?transition=break');
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
   await page.locator('#s_bpm').fill('140');
   await page.locator('#play').click();
+  await page.waitForTimeout(1500);
   const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
   const barMs = (60 / bpm) * 4 * 1000;
 
-  const phrase = async () => (await page.locator('#pphrase').textContent()).trim();
-  // ブレイクが出るまで待つ
-  await expect.poll(phrase, { timeout: 90000, intervals: [150] }).toContain('ブレイク');
+  // 表示は「フレーズ → 行き先 (方式)」の形で、方式の名前にも「ブレイク」が入る。
+  // 見たいのはフレーズ側なので、矢印より前だけを取る
+  const phrase = async () =>
+    (await page.locator('#pphrase').textContent()).split('→')[0].trim();
+  await page.locator('#next').click();
+
+  await expect.poll(phrase, { timeout: 30000, intervals: [100] }).toContain('ブレイク');
   const t0 = Date.now();
-  // 抜けるまで待つ
   await expect.poll(phrase, { timeout: 20000, intervals: [100] }).not.toContain('ブレイク');
   // 検出の遅れぶんを見込んでも、2小節ぶんは超えない
   expect(Date.now() - t0).toBeLessThan(barMs * 2);

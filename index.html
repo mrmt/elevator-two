@@ -123,7 +123,22 @@
     touch-action:none;cursor:crosshair;
     container-type:size;container-name:pad;
   }
-  .plane canvas{display:block;width:100%;height:100%}
+  .plane canvas{display:block;width:100%;height:100%;position:relative;z-index:1}
+
+  /* ---- 背景の動画 (D-32) ----
+     2枚を重ねておき、差し替えるときに不透明度でクロスフェードする */
+  #bg{position:absolute;inset:0;overflow:hidden;background:#0B121B}
+  #bg .vid{position:absolute;inset:0;opacity:0;transition:opacity 1.1s ease}
+  #bg .vid.on{opacity:1}
+  #bg iframe{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);border:0;pointer-events:none}
+  /* CC BY は表示義務があるので、題名と制作者を必ず出す */
+  .vcap{
+    position:absolute;left:.5rem;bottom:.45rem;z-index:3;max-width:min(60%,26rem);
+    font-family:var(--data);font-size:.56rem;line-height:1.5;letter-spacing:.02em;
+    color:rgba(231,226,206,.62);text-shadow:0 1px 6px rgba(0,0,0,.8);
+    pointer-events:none;
+  }
+  .vcap:empty{display:none}
   .axis{
     display:flex;justify-content:space-between;
     font-size:.58rem;letter-spacing:.22em;color:var(--dim);
@@ -307,7 +322,9 @@
         <span data-i18n="pad.sparse">疎</span><span class="mid" data-i18n="pad.density">密度</span><span data-i18n="pad.dense">密</span>
       </div>
       <div class="plane" id="plane">
+        <div id="bg" hidden><div class="vid" id="vid0"><div id="yt0"></div></div><div class="vid" id="vid1"><div id="yt1"></div></div></div>
         <canvas id="cv"></canvas>
+        <div class="vcap" id="vcap"></div>
         <div class="overlay">
           <div><span class="k" data-i18n="pad.yy">陰陽</span><b id="ryy">—</b></div>
           <div><span class="k" data-i18n="pad.density">密度</span><b id="rd">—</b></div>
@@ -332,6 +349,18 @@
     <div id="params"></div>
     <div class="seqhead"><div class="eyebrow" style="margin:0" data-i18n="section.clock">クロック</div></div>
     <div id="clockparams" style="margin-top:.8rem"></div>
+    <div class="seqhead"><div class="eyebrow" style="margin:0" data-i18n="section.bg">背景</div></div>
+    <button class="toggle" id="bgvideo" aria-pressed="false" style="margin-top:.8rem"
+      data-i18n-tip="tip.bgvideo">
+      <span data-i18n="param.bgvideo">動画を流す</span><span class="lamp"></span>
+    </button>
+    <div class="param" style="margin-top:.6rem">
+      <label for="ytkey"><span data-i18n="param.ytkey" data-i18n-tip="tip.ytkey">YouTube APIキー</span></label>
+      <input type="password" id="ytkey" autocomplete="off" spellcheck="false"
+        style="width:100%;background:var(--panel);border:1px solid var(--line);color:var(--ink);
+               font-family:var(--data);font-size:.62rem;padding:.3rem .4rem">
+    </div>
+    <div class="prog" id="ytnote" style="margin-top:.35rem"></div>
   </section>
 </main>
 
@@ -353,7 +382,15 @@ ja:{
   'tip.next':'いまのシーンを打ち切って次へ進む',
   'tab.scene':'シーン','tab.pad':'XYパッド','tab.sound':'音作り',
   'section.scene':'シーン','section.next':'次へ','section.pad':'XYパッド — ドラッグで目標を移動',
-  'section.params':'パラメータ','section.clock':'クロック',
+  'section.params':'パラメータ','section.clock':'クロック','section.bg':'背景',
+  'param.bgvideo':'動画を流す','param.ytkey':'YouTube APIキー',
+  'tip.bgvideo':'XYパッドの背景に、いまのシーンの英語名で探した動画を音無しで流す。4小節ごとに差し替わる',
+  'tip.ytkey':'YouTube Data API のキー。ブラウザにだけ保存され、外部へは送らない。空にすると動画は止まる',
+  'yt.needkey':'キーを入れると背景に動画が流れる',
+  'yt.searching':'探している…',
+  'yt.none':'このシーンでは見つからなかった',
+  'yt.error':'検索できなかった (キーかクォータを確認)',
+  'yt.license':'CC BY',
   'pad.yy':'陰陽','pad.density':'密度','pad.bpm':'BPM','pad.bar':'小節',
   'pad.yin':'陰','pad.yang':'陽','pad.sparse':'疎','pad.dense':'密',
   'prog.phrase':'フレーズ','prog.event':'イベント','prog.wave':'陰陽の波','prog.key':'調',
@@ -400,7 +437,15 @@ en:{
   'tip.next':'Cut the current scene short and move to the next one',
   'tab.scene':'scene','tab.pad':'XY pad','tab.sound':'sound',
   'section.scene':'scene','section.next':'next','section.pad':'XY pad — drag to move the target',
-  'section.params':'parameters','section.clock':'clock',
+  'section.params':'parameters','section.clock':'clock','section.bg':'background',
+  'param.bgvideo':'video','param.ytkey':'YouTube API key',
+  'tip.bgvideo':'Plays muted video behind the XY pad, found by the current scene name. Swaps every 4 bars.',
+  'tip.ytkey':'Your YouTube Data API key. Stored in this browser only; never sent anywhere else. Clear it to stop the video.',
+  'yt.needkey':'Enter a key to show video behind the pad',
+  'yt.searching':'searching…',
+  'yt.none':'nothing found for this scene',
+  'yt.error':'search failed (check the key or quota)',
+  'yt.license':'CC BY',
   'pad.yy':'yin-yang','pad.density':'density','pad.bpm':'BPM','pad.bar':'bar',
   'pad.yin':'yin','pad.yang':'yang','pad.sparse':'sparse','pad.dense':'dense',
   'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave','prog.key':'key',
@@ -529,6 +574,12 @@ const EVENTS = [
 
 const target={}, current={};
 for(const k in P){ target[k]=P[k].def; current[k]=P[k].def; }
+/* 背景の動画 (D-32) の状態。
+   draw() と ResizeObserver がこれらを見るので、それらより前に宣言しておく。
+   後ろで let すると、初回の draw() が一時的死角に入って IIFE ごと落ちる */
+let ytKey='', videoOn=false, ytReady=false, ytPlayers=[null,null], ytLayer=0,
+    ytList=[], ytPos=0, ytSceneId=null, ytBusy=false, ytFailed=false, ytLastId=null;
+
 let glide=12;        // 秒。目標に到達するおおよその時間
 let volume=80;
 let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後で動く (D-11)
@@ -1555,6 +1606,7 @@ function enterScene(idx,{manual=false,keepKey=false}={}){
   updateScene();
   highlightScene();
   showProgress();   // 調と和音の表示も同時に追随させる。次の小節まで古い値を出さない
+  ytSceneId=null;   // 背景の動画はシーン名で探すので、一覧を引き直す
 }
 
 // 陰陽値から波の位相を逆に引く。いまが上り坂なら上り側、下り坂なら下り側を返す
@@ -2226,6 +2278,7 @@ function onBar(bar,time){
   seqB = (pendingScene>=0 && transitionMode==='mix')
     ? buildBar(bar,pendingScene,'plateau',patSeedB,false) : null;
   if(bar>0 && bar%4===0) maybeEvent(bar,time);   // 開始直後の1小節目にいきなり仕掛けを出さない
+  if(bar%4===0) ytSwap();                       // 背景の動画も4小節ごとに差し替える (D-32)
   showProgress();
 }
 
@@ -2432,7 +2485,7 @@ function resize(){
   cv.height=Math.max(1,Math.round(r.height*d));
   g2.setTransform(d,0,0,d,0,0);
 }
-new ResizeObserver(resize).observe(plane);
+new ResizeObserver(()=>{ resize(); if(ytReady) sizeVideo(); }).observe(plane);
 window.addEventListener('resize',resize);
 resize();
 
@@ -2461,10 +2514,17 @@ function draw(){
   // 陰 (青緑) から陽 (琥珀) へ。色相を下る経路は緑を通ってしまうので、
   // 青 → 紫 → 赤と上って一周させる
   const hue=(a,b)=>(lerp(a,b,yy))%360;
-  const gd=g2.createLinearGradient(0,0,w,h);
-  gd.addColorStop(0, `hsl(${hue(196,398)} ${lerp(34,52,yy)}% ${lerp(11,19,yy)}%)`);
-  gd.addColorStop(1, `hsl(${hue(210,382)} ${lerp(40,44,yy)}% ${lerp(6,11,yy)}%)`);
-  g2.fillStyle=gd; g2.fillRect(0,0,w,h);
+  if(videoOn){
+    // 動画のときは塗りつぶさない。文字が読める程度の幕だけを、陰陽の色で掛ける
+    g2.clearRect(0,0,w,h);
+    g2.fillStyle=`hsla(${hue(196,398)} ${lerp(34,52,yy)}% ${lerp(8,14,yy)}% / .52)`;
+    g2.fillRect(0,0,w,h);
+  }else{
+    const gd=g2.createLinearGradient(0,0,w,h);
+    gd.addColorStop(0, `hsl(${hue(196,398)} ${lerp(34,52,yy)}% ${lerp(11,19,yy)}%)`);
+    gd.addColorStop(1, `hsl(${hue(210,382)} ${lerp(40,44,yy)}% ${lerp(6,11,yy)}%)`);
+    g2.fillStyle=gd; g2.fillRect(0,0,w,h);
+  }
 
   const want=Math.round(lerp(14,90,dn));
   while(flakes.length<want) flakes.push({x:Math.random()*w,y:Math.random()*h,v:rand(.1,.5),r:rand(.6,2.2)});
@@ -2490,6 +2550,180 @@ function draw(){
   g2.beginPath(); g2.arc(cx,cy,3.4,0,6.283); g2.fill();
 }
 draw();
+
+/* ============================================================
+   背景の動画 (D-32)
+   ------------------------------------------------------------
+   いま鳴っているシーンの英語名で YouTube を検索し、改変を許すライセンス
+   (YouTube の CC は CC BY 3.0 のみ) の動画を音無しで背景に流す。
+   4小節ごとに差し替え、そのつどクロスフェードする。
+
+   キーはユーザーが入れてこのブラウザにだけ保存する。リポジトリには持たない。
+   キーが無ければ何も通信せず、これまでどおりの背景になる。
+   ============================================================ */
+const YT_KEY_STORE='elevator-two:ytkey';
+const YT_CACHE_STORE='elevator-two:ytcache';
+const YT_CACHE_TTL=24*60*60*1000;
+
+const bgEl=document.getElementById('bg');
+const capEl=document.getElementById('vcap');
+const noteEl=document.getElementById('ytnote');
+const keyEl=document.getElementById('ytkey');
+const bgBtn=document.getElementById('bgvideo');
+
+try{ ytKey=localStorage.getItem(YT_KEY_STORE)||''; }catch(_){ }
+keyEl.value=ytKey;
+
+function ytNote(key){ noteEl.textContent = key ? t(key) : ''; }
+
+// 検索結果はシーンごとに1日ぶん取っておく。毎回引くとクォータをすぐ使い切る
+function ytCache(){
+  try{ return JSON.parse(localStorage.getItem(YT_CACHE_STORE)||'{}'); }catch(_){ return {}; }
+}
+function ytCachePut(id,items){
+  try{
+    const c=ytCache();
+    c[id]={at:Date.now(),items};
+    localStorage.setItem(YT_CACHE_STORE,JSON.stringify(c));
+  }catch(_){ /* 保存できなくても動く */ }
+}
+
+// IFrame Player API。テストなどで先に window.YT が用意されていればそれを使う
+function loadYT(){
+  if(window.YT && window.YT.Player) return Promise.resolve();
+  if(loadYT._p) return loadYT._p;
+  loadYT._p=new Promise((res,rej)=>{
+    window.onYouTubeIframeAPIReady=()=>res();
+    const sc=document.createElement('script');
+    sc.src='https://www.youtube.com/iframe_api';
+    sc.onerror=()=>rej(new Error('iframe api'));
+    document.head.appendChild(sc);
+    setTimeout(()=>rej(new Error('timeout')),15000);
+  });
+  return loadYT._p;
+}
+
+async function ytSearch(sc){
+  const cached=ytCache()[sc.id];
+  if(cached && Date.now()-cached.at<YT_CACHE_TTL) return cached.items;
+  const q=I18N.en[`scene.${sc.id}.name`];
+  const url='https://www.googleapis.com/youtube/v3/search'
+    +'?part=snippet&type=video&maxResults=12&safeSearch=moderate'
+    +'&videoEmbeddable=true&videoLicense=creativeCommon'
+    +`&q=${encodeURIComponent(q)}&key=${encodeURIComponent(ytKey)}`;
+  const r=await fetch(url);
+  if(!r.ok) throw new Error('search '+r.status);
+  const j=await r.json();
+  const items=(j.items||[]).map(it=>({
+    id:it.id&&it.id.videoId,
+    title:(it.snippet&&it.snippet.title)||'',
+    by:(it.snippet&&it.snippet.channelTitle)||'',
+  })).filter(v=>v.id);
+  ytCachePut(sc.id,items);
+  return items;
+}
+
+function ytPlayer(i){
+  return new Promise(res=>{
+    ytPlayers[i]=new YT.Player('yt'+i,{
+      width:'640', height:'360',
+      playerVars:{controls:0,disablekb:1,modestbranding:1,rel:0,playsinline:1,
+                  iv_load_policy:3,fs:0},
+      events:{ onReady:e=>{ try{ e.target.mute(); }catch(_){ } res(e.target); } },
+    });
+  });
+}
+
+async function ytInit(){
+  if(ytReady) return true;
+  try{
+    await loadYT();
+    await Promise.all([ytPlayer(0),ytPlayer(1)]);
+    ytReady=true;
+    sizeVideo();
+    return true;
+  }catch(e){
+    ytFailed=true; ytNote('yt.error');
+    return false;
+  }
+}
+
+// 動画は 16:9。パッドの形に合わせて、はみ出すぶんを許して覆う
+function sizeVideo(){
+  const r=plane.getBoundingClientRect();
+  const w=Math.max(r.width, r.height*16/9), h=Math.max(r.height, r.width*9/16);
+  for(const f of bgEl.querySelectorAll('iframe')){
+    f.style.width=Math.ceil(w)+'px';
+    f.style.height=Math.ceil(h)+'px';
+  }
+}
+
+// いまのシーンぶんの一覧を用意する
+async function ytEnsureList(){
+  const sc=SCENES[sceneIdx];
+  if(ytSceneId===sc.id && ytList.length) return;
+  ytSceneId=sc.id; ytList=[]; ytPos=0;
+  ytNote('yt.searching');
+  try{
+    ytList=await ytSearch(sc);
+    ytNote(ytList.length?null:'yt.none');
+  }catch(e){
+    ytFailed=true; ytNote('yt.error');
+  }
+}
+
+// 4小節ごとに呼ばれる。次の動画を裏の層に用意してから重ねる
+async function ytSwap(){
+  if(!videoOn || !ytKey || ytFailed || ytBusy) return;
+  ytBusy=true;
+  try{
+    if(!await ytInit()) return;
+    await ytEnsureList();
+    if(!ytList.length) return;
+    let v=ytList[ytPos++%ytList.length];
+    // シーンが変わると一覧を引き直して先頭へ戻るので、同じ動画が続くことがある。
+    // 直前と同じなら一つ送る
+    if(v.id===ytLastId && ytList.length>1) v=ytList[ytPos++%ytList.length];
+    ytLastId=v.id;
+    const next=1-ytLayer;
+    const pl=ytPlayers[next];
+    // 頭からではなく途中から流す。冒頭の題字や暗転を避ける
+    pl.loadVideoById({videoId:v.id, startSeconds:Math.floor(rand(8,90))});
+    try{ pl.mute(); pl.playVideo(); }catch(_){ }
+    await new Promise(r=>setTimeout(r,700));   // 絵が出るのを少し待ってから重ねる
+    document.getElementById('vid'+next).classList.add('on');
+    document.getElementById('vid'+ytLayer).classList.remove('on');
+    ytLayer=next;
+    capEl.textContent=`${v.title} — ${v.by} (${t('yt.license')})`;
+  }catch(e){
+    ytFailed=true; ytNote('yt.error');
+  }finally{
+    ytBusy=false;
+  }
+}
+
+function setVideo(on){
+  videoOn=on && !!ytKey;
+  bgBtn.setAttribute('aria-pressed',String(videoOn));
+  bgEl.hidden=!videoOn;
+  if(!videoOn){
+    capEl.textContent='';
+    for(const pl of ytPlayers){ try{ pl && pl.pauseVideo(); }catch(_){ } }
+    ytNote(ytKey?null:'yt.needkey');
+  }else{
+    ytFailed=false;
+    ytNote(null);
+    ytSwap();
+  }
+}
+
+bgBtn.addEventListener('click',()=>setVideo(!videoOn));
+keyEl.addEventListener('change',()=>{
+  ytKey=keyEl.value.trim();
+  try{ ytKey ? localStorage.setItem(YT_KEY_STORE,ytKey) : localStorage.removeItem(YT_KEY_STORE); }catch(_){ }
+  ytFailed=false; ytSceneId=null; ytList=[];
+  setVideo(!!ytKey);
+});
 
 /* ---- 読み出し ---- */
 const rYY=document.getElementById('ryy'), rD=document.getElementById('rd'),
@@ -2746,6 +2980,7 @@ sceneBars=sceneLengthBars();
 applyI18n();
 showProgress();
 readout();
+setVideo(!!ytKey);   // キーが保存されていれば背景は動画から始める
 
 window.addEventListener('keydown',e=>{
   if(e.code==='Space'&&e.target===document.body){ e.preventDefault(); if(running) stopAudio(); else startAudio(); }
