@@ -10,12 +10,28 @@ const ITEMS = Array.from({ length: 6 }, (_, i) => ({
 async function stubYouTube(page) {
   await page.route('**/youtube/v3/search*', route =>
     route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: ITEMS }) }));
+  // videos.list は生き死にと長さの確認に使う (D-35)
+  await page.route('**/youtube/v3/videos*', route => {
+    const ids = new URL(route.request().url()).searchParams.get('id').split(',');
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: ids.map(id => ({
+          id,
+          contentDetails: { duration: 'PT31M20S' },
+          status: { embeddable: true, privacyStatus: 'public', license: 'creativeCommon' },
+        })),
+      }),
+    });
+  });
   await page.addInitScript(() => {
     window.__searches = [];
     window.__loaded = [];
+    window.__verifies = [];
     const origFetch = window.fetch;
     window.fetch = function (url, ...rest) {
       if (String(url).includes('youtube/v3/search')) window.__searches.push(String(url));
+      if (String(url).includes('youtube/v3/videos')) window.__verifies.push(String(url));
       return origFetch.call(this, url, ...rest);
     };
     window.YT = {
@@ -116,4 +132,57 @@ test('トグルで止められる', async ({ page }) => {
   await page.locator('#bgvideo').click();
   await expect(page.locator('#bg')).toBeHidden();
   await expect(page.locator('#vcap')).toHaveText('');
+});
+
+test('取っておいた一覧は検索を繰り返さず、確認だけで済ませる', async ({ page }) => {
+  // D-35。search.list は1回100単位、videos.list は1単位。
+  // 一覧は30日取っておき、生き死にと長さの確認だけ1日1回行う
+  await stubYouTube(page);
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(0).click();
+  await page.locator('#ytkey').fill('test-key');
+  await page.locator('#ytkey').blur();
+  await expect(page.locator('#vcap')).toContainText('CC BY', { timeout: 8000 });
+  expect(await page.evaluate(() => window.__searches.length)).toBe(1);
+  expect(await page.evaluate(() => window.__verifies.length)).toBe(1);
+
+  // 開き直しても、取ってある一覧は引き直さない。
+  // 開いた直後のシーンは陰陽の波から引かれるので、そこは検索が走りうる。
+  // 落ち着いてから数え直し、取ってあるシーンへ移っても増えないことを見る
+  await page.reload();
+  await page.waitForTimeout(2500);
+  const before = await page.evaluate(() => [window.__searches.length, window.__verifies.length]);
+  await page.locator('.scenebtn').nth(0).click();
+  await expect(page.locator('#vcap')).toContainText('CC BY', { timeout: 8000 });
+  await page.waitForTimeout(1500);
+  expect(await page.evaluate(() => [window.__searches.length, window.__verifies.length]))
+    .toEqual(before);
+});
+
+test('埋め込めなくなった動画は一覧から外れる', async ({ page }) => {
+  await stubYouTube(page);
+  // 半分を埋め込み不可にして返す
+  await page.route('**/youtube/v3/videos*', route => {
+    const ids = new URL(route.request().url()).searchParams.get('id').split(',');
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: ids.map((id, i) => ({
+          id,
+          contentDetails: { duration: 'PT25M' },
+          status: { embeddable: i % 2 === 0, privacyStatus: 'public', license: 'creativeCommon' },
+        })),
+      }),
+    });
+  });
+  await page.goto('/index.html');
+  await page.locator('#ytkey').fill('test-key');
+  await page.locator('#ytkey').blur();
+  await expect(page.locator('#vcap')).toContainText('CC BY', { timeout: 8000 });
+
+  const cached = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('elevator-two:ytcache')));
+  const items = Object.values(cached)[0].items;
+  expect(items.length).toBe(3);            // 6件のうち偶数番目だけ残る
+  expect(items.every(v => v.dur === 1500)).toBe(true);
 });

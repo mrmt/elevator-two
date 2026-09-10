@@ -2638,7 +2638,13 @@ draw();
    ============================================================ */
 const YT_KEY_STORE='elevator-two:ytkey';
 const YT_CACHE_STORE='elevator-two:ytcache';
-const YT_CACHE_TTL=24*60*60*1000;
+/* 検索 (search.list) は1回100単位、既定の上限は1日1万単位。
+   一方 videos.list は1単位で済む。そこで、
+   - 検索の結果は30日取っておき、そうそう引き直さない
+   - 生き死にと長さの確認だけは videos.list に任せ、1日1回1単位で済ませる
+   という分担にしてある (D-35) */
+const YT_CACHE_TTL=30*24*60*60*1000;
+const YT_VERIFY_TTL=24*60*60*1000;
 
 const bgEl=document.getElementById('bg');
 const capEl=document.getElementById('vcap');
@@ -2655,10 +2661,11 @@ function ytNote(key){ noteEl.textContent = key ? t(key) : ''; }
 function ytCache(){
   try{ return JSON.parse(localStorage.getItem(YT_CACHE_STORE)||'{}'); }catch(_){ return {}; }
 }
-function ytCachePut(id,items){
+function ytCachePut(id,items,{searched=true}={}){
   try{
     const c=ytCache();
-    c[id]={at:Date.now(),items};
+    const prev=c[id]||{};
+    c[id]={at: searched?Date.now():(prev.at||Date.now()), checkedAt:Date.now(), items};
     localStorage.setItem(YT_CACHE_STORE,JSON.stringify(c));
   }catch(_){ /* 保存できなくても動く */ }
 }
@@ -2724,13 +2731,46 @@ async function ytFetch(url){
   })).filter(v=>v.id);
 }
 
+/* videos.list で、取っておいた動画がまだ使えるかと長さを確かめる (1単位)。
+   検索を引き直すより100倍安いので、長く取っておいた一覧の手入れはこちらで行う */
+function iso8601Sec(d){
+  const m=/^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(d||'');
+  if(!m) return 0;
+  return (+m[1]||0)*86400+(+m[2]||0)*3600+(+m[3]||0)*60+(+m[4]||0);
+}
+async function ytVerify(items){
+  if(!items.length) return items;
+  const url='https://www.googleapis.com/youtube/v3/videos'
+    +'?part=contentDetails,status'
+    +`&id=${items.slice(0,50).map(v=>v.id).join(',')}&key=${encodeURIComponent(ytKey)}`;
+  const r=await fetch(url);
+  if(!r.ok) throw new Error('videos '+r.status);
+  const j=await r.json();
+  const info={};
+  for(const it of (j.items||[])){
+    const st=it.status||{};
+    // 埋め込めない・非公開・ライセンスが変わった動画はここで落とす
+    if(!st.embeddable || st.privacyStatus!=='public' || st.license!=='creativeCommon') continue;
+    info[it.id]=iso8601Sec(it.contentDetails&&it.contentDetails.duration);
+  }
+  return items.filter(v=>info[v.id]!==undefined).map(v=>({...v,dur:info[v.id]}));
+}
+
 async function ytSearch(sc){
   const cached=ytCache()[sc.id];
-  if(cached && Date.now()-cached.at<YT_CACHE_TTL) return cached.items;
+  if(cached && Date.now()-cached.at<YT_CACHE_TTL && cached.items.length){
+    // 一覧はそのまま使い、生き死にと長さの確認だけ1日に1度行う
+    if(Date.now()-(cached.checkedAt||0)<YT_VERIFY_TTL) return cached.items;
+    try{
+      const fresh=await ytVerify(cached.items);
+      if(fresh.length){ ytCachePut(sc.id,fresh,{searched:false}); return fresh; }
+    }catch(e){ return cached.items; }   // 確認に失敗しても、あるものは使う
+  }
   const q=ytQuery(sc);
   let items=await ytFetch(ytUrl(q));
   // 長さで絞ると何も見つからないシーンがありうる。そのときだけ長さの条件を外して引き直す
   if(!items.length) items=await ytFetch(ytUrl(q,{long:false}));
+  try{ items=await ytVerify(items); }catch(e){ /* 確認できなくても検索結果は使う */ }
   ytCachePut(sc.id,items);
   return items;
 }
@@ -2800,7 +2840,9 @@ async function ytSwap(){
     const next=1-ytLayer;
     const pl=ytPlayers[next];
     // 頭からではなく途中から流す。冒頭の題字や暗転を避ける
-    pl.loadVideoById({videoId:v.id, startSeconds:Math.floor(rand(8,90))});
+    // 長さが分かっていれば、頭と終わりを避けた範囲から流し始める
+    const start = v.dur>90 ? Math.floor(rand(20,Math.max(30,v.dur-60))) : Math.floor(rand(5,20));
+    pl.loadVideoById({videoId:v.id, startSeconds:start});
     try{ pl.mute(); pl.playVideo(); }catch(_){ }
     await new Promise(r=>setTimeout(r,700));   // 絵が出るのを少し待ってから重ねる
     document.getElementById('vid'+next).classList.add('on');

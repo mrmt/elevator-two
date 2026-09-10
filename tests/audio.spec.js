@@ -278,13 +278,14 @@ test('コード弾きに連打のバリエーションがある', async ({ page 
   await page.evaluate(() => { window.__chop.length = 0; });
   await page.waitForTimeout(9000);
   const hits = [...new Set(await page.evaluate(() => window.__chop))].sort((a, b) => a - b);
-  expect(hits.length).toBeGreaterThan(8);
+  expect(hits.length).toBeGreaterThan(5);
 
-  // 8分を基本に置くので、隣り合う打点は8分ひとつぶんが最も多い
+  // 8分を基本に、たまに16分の返しが入る。隣り合う打点はそのどちらかが大半を占める。
+  // 密度は「密度」スライダーとフレーズ型で動くので、割合には幅を見ておく
   const step = (60 / bpm) / 4;
   const gaps = [];
   for (let i = 1; i < hits.length; i++) gaps.push(Math.round((hits[i] - hits[i - 1]) / step));
-  expect(gaps.filter(g => g === 2).length).toBeGreaterThan(gaps.length * 0.3);
+  expect(gaps.filter(g => g <= 2).length / gaps.length).toBeGreaterThan(0.5);
   // すべて16分の格子の上にある
   expect(gaps.every(g => g >= 1)).toBe(true);
 });

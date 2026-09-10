@@ -230,8 +230,10 @@ BiquadFilter 2段へ落ちる (粘りは出ないが鳴りはする)。
 - シーンが変わると `ytSceneId` を無効にして一覧を引き直す
 - 検索語は `ytQuery()` が組み立てる。シーンの英語名 + `SCENE_QUERY` の性格語 +
   共通の `footage`。`videoDuration=long` と `order=viewCount` で絞る (D-33)
-- 検索結果はシーンごとに1日ぶん `localStorage` に取っておく (クォータ節約)。
+- 検索結果はシーンごとに30日 `localStorage` に取っておく。
   長さで絞って空だったときだけ、長さの条件を外して引き直す
+- 生き死にと長さの確認は `videos.list` (1単位) が1日1回行う。`search.list` は
+  100単位なので、長く取っておいて安いほうで手入れする、という分担 (D-35)
 - 動画のときは canvas を塗りつぶさず、陰陽の色の薄い幕だけを掛ける
 
 **状態を宣言する位置に注意。** `draw()` と `ResizeObserver` が `videoOn` と `ytReady` を
