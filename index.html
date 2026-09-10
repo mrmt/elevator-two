@@ -359,6 +359,7 @@ ja:{
   'prog.phrase':'フレーズ','prog.event':'イベント','prog.wave':'陰陽の波','prog.key':'調',
   'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
   'circuit.stab':'スタブ','circuit.jazz':'エレピ','circuit.sustain':'持続','circuit.funk':'持続(薄)',
+  'mode2.break':'ブレイク','mode2.morph':'連続変形','mode2.mix':'ミックス',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -404,6 +405,7 @@ en:{
   'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave','prog.key':'key',
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
+  'mode2.break':'break','mode2.morph':'morph','mode2.mix':'mix',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -536,7 +538,8 @@ let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後�
    ============================================================ */
 let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     mixFilter=null, dry=null, revSend=null, revGain=null, dlySend=null, delayNodes=null,
-    drumBus=null, drumSat=null, drumFilter=null,
+    drumBus=null, drumSat=null, drumFilter=null, drumMix=null,
+    drumBusB=null, drumFilterB=null, drumMixB=null,
     bassBus=null, bassSum=null, bassPre=null, bassShaper=null, bassLadder=null,
     bassAmp=null, bassComp=null, bassLfo=null, bassReady=false,
     padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
@@ -596,7 +599,9 @@ const KITS={
             sd:{tone:204,noise:.62,dec:.17}, hh:{hp:8300,dec:.040,gain:.58}, oh:{dec:.30},
             perc:'metal', percGain:.60, cowbell:true},
 };
-const kit = () => KITS[SCENES[sceneIdx].kit];
+// 打点が参照するキット。DJ ミックス風の遷移では、入ってくる側だけ新シーンのキットで鳴らす
+let kitOverride=null;
+const kit = () => KITS[SCENES[kitOverride!=null?kitOverride:sceneIdx].kit];
 
 /* ---- 調性 (D-9) ----
    キーはシーンごとに変え、移動先は五度圏で近い調から選ぶ。
@@ -698,12 +703,24 @@ function build(){
   drumFilter=ctx.createBiquadFilter();
   drumFilter.type='lowpass'; drumFilter.frequency.value=20000; drumFilter.Q.value=1.0;
   const drumPost=ctx.createGain(); drumPost.gain.value=1;
-  drumBus.connect(drumSat).connect(drumPost).connect(drumFilter);
+  drumMix=ctx.createGain(); drumMix.gain.value=1;
+  drumBus.connect(drumSat).connect(drumPost).connect(drumFilter).connect(drumMix);
   build.drumPost=drumPost;
-  drumFilter.connect(dry);
-  const dSend=ctx.createGain(); dSend.gain.value=.5; drumFilter.connect(dSend).connect(revSend);
-  const dDly =ctx.createGain(); dDly.gain.value=.3;  drumFilter.connect(dDly).connect(dlySend);
+  drumMix.connect(dry);
+  const dSend=ctx.createGain(); dSend.gain.value=.5; drumMix.connect(dSend).connect(revSend);
+  const dDly =ctx.createGain(); dDly.gain.value=.3;  drumMix.connect(dDly).connect(dlySend);
   build.drumSends={rev:dSend,dly:dDly};
+
+  // DJ ミックス風の遷移 (D-5 方式3) で、入ってくるシーンのドラムを流す2本目の経路。
+  // 普段は drumMixB が 0 なので何も出ない
+  drumBusB=ctx.createGain(); drumBusB.gain.value=1;
+  drumFilterB=ctx.createBiquadFilter();
+  drumFilterB.type='highpass'; drumFilterB.frequency.value=1200; drumFilterB.Q.value=.9;
+  drumMixB=ctx.createGain(); drumMixB.gain.value=0;
+  const satB=ctx.createWaveShaper(); satB.curve=drumSat.curve; satB.oversample='2x';
+  drumBusB.connect(satB).connect(drumFilterB).connect(drumMixB);
+  drumMixB.connect(dry);
+  drumMixB.connect(dSend); drumMixB.connect(dDly);
 
   buildHarmony();
   ready=true;
@@ -1048,9 +1065,11 @@ function epChord(time,vel){
    すべて TR-808 の作り方に倣った合成。サンプルは持たない。
    各関数は「その時刻に鳴らして、鳴り終わったら片付ける」だけを行う。
    ============================================================ */
+// 打点の接続先。DJ ミックス風の遷移の間だけ2本目へ向ける
+let curDrumBus=null;
 function drumOut(pan){
   const p=ctx.createStereoPanner(); p.pan.value=pan||0;
-  p.connect(drumBus);
+  p.connect(curDrumBus||drumBus);
   return p;
 }
 function decayTo(gain,t,peak,dec,atk){
@@ -1300,8 +1319,16 @@ function phraseCutoff(){
    進行 — 第1層 シーン (D-4 / D-12 / D-13)
    ============================================================ */
 let sceneIdx=0;          // いま鳴っているシーン
-let pendingScene=-1;     // 遷移中の行き先。ブレイクが明けたらここへ移る
+let pendingScene=-1;     // 遷移中の行き先
 let transitionEndBar=-1;
+let transitionMode='break';   // 'break' | 'morph' | 'mix' (D-5 の3方式)
+/* 開発用。?transition=mix のように付けると遷移方式を固定できる。
+   方式2と3は自動では数分に一度しか起きないので、手元での確認とテストに要る */
+const forcedMode=(()=>{
+  const v=new URLSearchParams(location.search).get('transition');
+  return ['break','morph','mix'].includes(v) ? v : null;
+})();
+let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
 let recent=[];           // 直近に出たシーン。同じものを続けて引かないため
@@ -1330,10 +1357,10 @@ function sceneLengthBars(){
   return Math.max(32, Math.round(sec/(60/bpmNow()*4)/16)*16);
 }
 
-function enterScene(idx,{manual=false}={}){
+function enterScene(idx,{manual=false,keepKey=false}={}){
   sceneIdx=idx;
   if(manual){ pendingScene=-1; transitionEndBar=-1; }   // 手で選んだら遷移は打ち切る
-  moveKey();          // キーはシーンごとに五度圏で近い調へ移る (D-9)
+  if(!keepKey) moveKey();   // キーはシーンごとに五度圏で近い調へ移る (D-9)
   reseedPattern();    // 並びも引き直す。前のシーンの模様を持ち越さない
   pickProg();         // 回路が変わるので和音の進行も選び直す
   chordAt=-999;       // 次の小節で必ず和音を組み直す
@@ -1509,16 +1536,17 @@ function bassBar(bar,R,kickPat){
   return out;
 }
 
-// 小節ごとの並びを引き直す。onBar() の頭で呼ぶ
-function regenerate(bar){
-  const sc=SCENES[sceneIdx], d=current.density;
+/* 小節ぶんの並びを作る。
+   どのシーンとして作るかを引数で受けるので、DJ ミックス風の遷移 (D-5 方式3) では
+   旧シーンと新シーンの2つ分を同じ小節に対して作れる */
+function buildBar(bar,scIdx,phr,seed){
+  const sc=SCENES[scIdx], d=current.density;
   const funk = sc.group==='funk';
-  const quiet = phrase==='break', dub = phrase==='dubout';
+  const quiet = phr==='break', dub = phr==='dubout';
+  const out={};
 
-  // --- 変異 (D-7)。当たったときだけ種を引き直し、それまでは同じ並びを繰り返す
-  if(Math.random()<current.mutate*.5) reseedPattern();
   // 2小節でひと組。偶数小節と奇数小節で別の顔を持たせる
-  const R=rng(patSeed+(bar%2)*7919);
+  const R=rng(seed+(bar%2)*7919);
 
   if(R()<.5) hatRot=Math.floor(R()*16);
   percPer=[[3,5,7][Math.floor(R()*3)],[5,7,11][Math.floor(R()*3)]];
@@ -1538,7 +1566,7 @@ function regenerate(bar){
   if(kickVariant) applyKickOp(k,kickVariant);
   if(quiet) k.fill(0);
   k[0]=quiet?0:Math.max(k[0],1);            // 小節頭は変異させない (ブレイク中を除く)
-  seq.kick=k;
+  out.kick=k;
 
   // --- スネア / クラップ: 2・4拍が基本。funk ではゴーストを足す
   const sn=new Array(16).fill(0), cl=new Array(16).fill(0);
@@ -1551,7 +1579,7 @@ function regenerate(bar){
     }
     if(edge && Math.random()<.5) sn[15]=.5;   // 小節をまたぐ手前の合図
   }
-  seq.snare=sn; seq.clap=cl;
+  out.snare=sn; out.clap=cl;
 
   // --- ハット: ユークリッドを主軸に、密度で間引き、拍で強弱を付ける
   const e=euclid(sc.hatK,16);
@@ -1566,7 +1594,7 @@ function regenerate(bar){
     const cand=[2,6,10,14].filter(i=>hat[i]>0 || R()<.4);
     if(cand.length){ const i=cand[Math.floor(R()*cand.length)]; oh[i]=.8; hat[i]=0; }
   }
-  seq.hat=hat; seq.ohat=oh;
+  out.hat=hat; out.ohat=oh;
 
   // --- パーカッション: 互いに素な周期を回してポリリズムを作る (D-7)。
   // 小節をまたいで模様が変わっていくよう、位置は通し番号で決める
@@ -1576,20 +1604,20 @@ function regenerate(bar){
     if(g%percPer[0]===percOff[0]%percPer[0] && R()<.35+d*.5) p1[i]=.5+R()*.4;
     if(g%percPer[1]===percOff[1]%percPer[1] && R()<.25+d*.45) p2[i]=.4+R()*.4;
   }
-  seq.perc1=p1; seq.perc2=p2;
+  out.perc1=p1; out.perc2=p2;
 
   // --- リム: 陰のキットだけ、まばらに
   const rm=new Array(16).fill(0);
   if(sc.kit==='deep' || dub){
     for(let i=0;i<16;i++) if(R()<.06+d*.10) rm[i]=.4+R()*.4;
   }
-  seq.rim=rm;
+  out.rim=rm;
 
   // --- ベース
-  seq.bass=bassBar(bar,R,k);
+  out.bass=bassBar(bar,R,k,scIdx,phr);
 
   // --- ハーモニー。鳴らす回路はシーンが決める (D-8)
-  const cir=circuit();
+  const cir=sc.group;
   const stab=new Array(16).fill(0), ep=new Array(16).fill(0),
         arp=new Array(16).fill(0), riff=new Array(16).fill(0);
   if(cir==='stab' && !quiet){
@@ -1606,7 +1634,15 @@ function regenerate(bar){
     if(i%2===0 && R()<.85) arp[i]=.5+R()*.3;
     if((i===0||i===3||i===6||i===11) && R()<.55) riff[i]=.5+R()*.4;
   }
-  seq.stab=stab; seq.ep=ep; seq.arp=arp; seq.riff=riff;
+  out.stab=stab; out.ep=ep; out.arp=arp; out.riff=riff;
+  return out;
+}
+
+// いま鳴っているシーンぶんを引き直す。onBar() の頭で呼ぶ
+function regenerate(bar){
+  // 変異 (D-7)。当たったときだけ種を引き直し、それまでは同じ並びを繰り返す
+  if(Math.random()<current.mutate*.5) reseedPattern();
+  Object.assign(seq, buildBar(bar,sceneIdx,phrase,patSeed));
 }
 
 /* ============================================================
@@ -1687,11 +1723,28 @@ let bpmCur=125;
 function bpmNow(){ return bpmCur; }
 function stepDur(){ return 60/bpmNow()/4; }   // 16分音符
 
+// 入ってくるシーンのドラムだけを2本目の経路へ流す。
+// ベースと和音まで重ねると音がぶつかるので、DJ が次の曲のビートを差し込むのと同じ範囲に留める
+function playStepB(i,time){
+  curDrumBus=drumBusB;
+  kitOverride=pendingScene;
+  if(seqB.kick[i])  bd(time,seqB.kick[i]);
+  if(seqB.snare[i]) sd(time,seqB.snare[i]);
+  if(seqB.clap[i])  cp(time,seqB.clap[i]);
+  if(seqB.hat[i])   hh(time+rand(-.002,.003),seqB.hat[i],false);
+  if(seqB.ohat[i])  hh(time,seqB.ohat[i],true);
+  if(seqB.perc1[i]) perc(time,seqB.perc1[i],-.45,.2);
+  if(seqB.perc2[i]) perc(time,seqB.perc2[i], .50,1.1);
+  curDrumBus=drumBus;
+  kitOverride=null;
+}
+
 // 1ステップぶんの予約。並びに従ってドラムを鳴らす
 function playStep(i,time){
   showStepAt(i,time);
   if(!ready) return;
   const sw=stepDur(), k=kit();
+  if(seqB) playStepB(i,time);
   const hatOff  = barCount<=muteHatUntilBar;
   const kickOff = barCount<=muteKickUntilBar;
 
@@ -1746,14 +1799,63 @@ function runStepUI(now){
 
 // 遷移を始める。ブレイクを置き、その中でキット・和音・編成・BPM を乗り換える (D-5 方式1)。
 // 自動の切り替えと「次へ」の両方がここを通る
-function startTransition(bar,bars){
+function startTransition(bar,bars,time,{force=null}={}){
   newWavePeriod();
   pendingScene=chooseScene();
-  transitionEndBar=bar+bars;
-  phrase='break'; phraseStartBar=bar;
-  reseedPattern();
+  transitionMode=forcedMode || force || chooseTransitionMode();
   epGuest=false;
+
+  if(transitionMode==='break'){
+    transitionEndBar=bar+bars;
+    phrase='break'; phraseStartBar=bar;
+    reseedPattern();
+  }else{
+    // 連続変形とミックスはどちらも16小節かける。ブレイクは挟まない
+    transitionEndBar=bar+PHRASE_BARS;
+    if(transitionMode==='mix'){
+      patSeedB=(Math.random()*1e9)|0;
+      seqB=null;
+      scheduleMixFades(bar,time);
+    }
+  }
   showProgress();
+}
+
+// 方式の選び方 (D-5)。連続変形は、離散的な入れ替わりが起きない相手にだけ使う。
+// 回路もキットも同じなら、値を滑らかに移すだけで乗り換えが成立する
+function chooseTransitionMode(){
+  const sc=SCENES[sceneIdx], nx=SCENES[pendingScene];
+  const canMorph = nx.group===sc.group && nx.kit===sc.kit;
+  const r=Math.random();
+  if(canMorph && r<.35) return 'morph';
+  return r<.7 ? 'mix' : 'break';
+}
+
+// ミックスの音量とフィルタを予約する。
+// 入ってくる側はハイパスを下げながら量を上げ、出ていく側は後半で引く
+function scheduleMixFades(bar,time){
+  if(!drumMixB) return;
+  const barSec=stepDur()*16, span=barSec*PHRASE_BARS;
+  drumMixB.gain.cancelScheduledValues(time);
+  drumMixB.gain.setValueAtTime(.0001,time);
+  drumMixB.gain.linearRampToValueAtTime(1,time+span*.85);
+  drumFilterB.frequency.cancelScheduledValues(time);
+  drumFilterB.frequency.setValueAtTime(1400,time);
+  drumFilterB.frequency.exponentialRampToValueAtTime(28,time+span*.8);
+  drumMix.gain.cancelScheduledValues(time);
+  drumMix.gain.setValueAtTime(1,time);
+  drumMix.gain.setValueAtTime(1,time+span*.4);
+  drumMix.gain.linearRampToValueAtTime(.0001,time+span);
+}
+// 乗り換えが済んだら経路を元に戻す
+function endMixFades(time){
+  if(!drumMixB) return;
+  for(const [g,v] of [[drumMix.gain,1],[drumMixB.gain,.0001]]){
+    g.cancelScheduledValues(time); g.setValueAtTime(v,time);
+  }
+  drumFilterB.frequency.cancelScheduledValues(time);
+  drumFilterB.frequency.setValueAtTime(1400,time);
+  seqB=null;
 }
 
 // 小節の頭で3階層を進める。ここが進行の中心。
@@ -1762,13 +1864,15 @@ function onBar(bar,time){
   // ---- シーン遷移 (D-5 方式1: ブレイクを挟む) ----
   // 終わりの8小節をブレイクに充て、その間にキット・和音・編成・BPM を乗り換える
   if(pendingScene<0 && bar-sceneStartBar>=sceneBars-TRANSITION_BARS && (bar-phraseStartBar)%8===0){
-    startTransition(bar,TRANSITION_BARS);
+    startTransition(bar,TRANSITION_BARS,time);
   }
   if(pendingScene>=0 && bar>=transitionEndBar){
-    const nxt=pendingScene;
+    const nxt=pendingScene, mode=transitionMode;
     pendingScene=-1;
-    enterScene(nxt);
-    nextPhrase();       // ブレイク明けは新しいシーンのフレーズから始める
+    if(mode==='mix') endMixFades(time);
+    // 連続変形では調も持ち越す。ここで転調すると継ぎ目が出てしまう
+    enterScene(nxt,{keepKey:mode==='morph'});
+    if(mode!=='morph') nextPhrase();
   }
   // フレーズは16小節がひと区切り。「展開」を上げると、8小節の折り返しでも
   // 切り替わることがあり、移り変わりが早くなる (D-11)
@@ -1783,6 +1887,9 @@ function onBar(bar,time){
     padRebuild(time);
   }
   regenerate(bar);
+  // DJ ミックス風の遷移では、同じ小節に対して新シーンぶんの並びも作る (D-5 方式3)
+  seqB = (pendingScene>=0 && transitionMode==='mix')
+    ? buildBar(bar,pendingScene,'plateau',patSeedB) : null;
   if(bar>0 && bar%4===0) maybeEvent(bar,time);   // 開始直後の1小節目にいきなり仕掛けを出さない
   showProgress();
 }
@@ -1816,7 +1923,10 @@ function smooth(){
   // 波を進め、手で触られていない限り陰陽の目標を波に従わせる (D-13)
   if(running && !dragging){
     wavePos=(wavePos+dt/wavePeriod)%1;
-    if(!sceneEdited) target.yy=lerp(target.yy, waveYY(wavePos), Math.min(1,dt*.5));
+    // 連続変形の最中は、行き先のシーンの陰陽へまっすぐ寄せる (D-5 方式2)
+    const goal = (pendingScene>=0 && transitionMode==='morph')
+      ? SCENES[pendingScene].yy : waveYY(wavePos);
+    if(!sceneEdited) target.yy=lerp(target.yy, goal, Math.min(1,dt*.5));
   }
   apply();
   readout();
@@ -1869,7 +1979,8 @@ document.getElementById('next').addEventListener('click',e=>{
   if(running){
     // 鳴っている間は自動の切り替えと同じブレイクを挟む。
     // ただし押した手応えが要るので、長さは半分にする (D-16)
-    startTransition(barCount,TRANSITION_BARS/2);
+    startTransition(barCount,TRANSITION_BARS/2,ctx.currentTime,{force:'break'});
+    // 方式を固定しているときは、その方式ぶんの長さで進む (startTransition 側が決める)
   }else{
     newWavePeriod();
     enterScene(chooseScene());
@@ -1962,7 +2073,9 @@ const pKey=document.getElementById('pkey');
 const pChord=document.getElementById('pchord');
 function showProgress(){
   pPhrase.textContent=t(`phrase.${phrase}`)
-    + (pendingScene>=0 ? ` → ${t('scene.'+SCENES[pendingScene].id+'.name')}` : '');
+    + (pendingScene>=0
+        ? ` → ${t('scene.'+SCENES[pendingScene].id+'.name')} (${t('mode2.'+transitionMode)})`
+        : '');
   const inPhrase=barCount-phraseStartBar+1;
   const inScene=barCount-sceneStartBar+1;
   pBarPos.textContent=`${inPhrase}/${PHRASE_BARS}  (scene ${inScene}/${sceneBars})`;
@@ -2203,7 +2316,7 @@ async function startAudio(){
   phraseStartBar=0; sceneStartBar=0;
   sceneBars=sceneLengthBars();
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1;
-  pendingScene=-1; transitionEndBar=-1;
+  pendingScene=-1; transitionEndBar=-1; seqB=null;
   evFilterUntil=0; evMasterUntil=0; evDelayUntil=0;
   bpmCur=bpmTarget();
   await startClock();
@@ -2218,7 +2331,8 @@ function stopAudio(){
   running=false;
   setPowerUI(false);
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
-  pendingScene=-1; transitionEndBar=-1;
+  pendingScene=-1; transitionEndBar=-1; seqB=null;
+  if(drumMixB) endMixFades(ctx.currentTime);
   flushSteps();
   uiStep=-1; renderSteps();
   apply();

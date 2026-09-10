@@ -185,3 +185,43 @@ test('D-11 の操作がひと通り揃っている', async ({ page }) => {
   await expect(page.locator('[data-i18n="pad.yy"]').first()).toBeVisible();
   await expect(page.locator('[data-i18n="pad.density"]').first()).toBeVisible();
 });
+
+test('連続変形の遷移ではブレイクを挟まない', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-5 方式2。?transition= で方式を固定できる (開発用)
+  await page.goto('/index.html?transition=morph');
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1500);
+
+  const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
+  await page.locator('#next').click();
+  await expect(page.locator('#pphrase')).toContainText('連続変形', { timeout: 8000 });
+  // ブレイクにはならない
+  await expect(page.locator('#pphrase')).not.toContainText('ブレイク');
+
+  // 16小節かけて乗り換わる
+  await expect.poll(async () => (await page.locator('#scenename').textContent()).replace(' (edit)', ''),
+    { timeout: 60000, intervals: [500] }).not.toBe(before);
+});
+
+test('ミックスの遷移では新旧が重なる', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-5 方式3。入ってくるシーンのドラムが2本目の経路から重なる
+  await page.goto('/index.html?transition=mix');
+  await page.locator('.scenebtn').nth(12).click();
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1500);
+
+  const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
+  await page.locator('#next').click();
+  await expect(page.locator('#pphrase')).toContainText('ミックス', { timeout: 8000 });
+  await expect(page.locator('#pphrase')).not.toContainText('ブレイク');
+
+  await expect.poll(async () => (await page.locator('#scenename').textContent()).replace(' (edit)', ''),
+    { timeout: 60000, intervals: [500] }).not.toBe(before);
+  // 乗り換えが済んだら表示から矢印が消える
+  await expect(page.locator('#pphrase')).not.toContainText('→');
+});
