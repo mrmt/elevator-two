@@ -6,6 +6,9 @@ const PORT = 8124;   // elevator-one (8123) と同時に走らせても衝突し
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
+  // 音の検証はメインスレッドで一定間隔にサンプリングするので、
+  // 並列度を上げすぎるとポーリングが痩せて測定がぶれる
+  workers: process.env.CI ? 2 : 3,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   // CI でも list を混ぜる。github reporter は失敗時の注釈しか出さないため、

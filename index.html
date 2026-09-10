@@ -323,6 +323,7 @@
       <div><span data-i18n="prog.phrase">フレーズ</span> <b id="pphrase">—</b> <span id="pbarpos"></span></div>
       <div><span data-i18n="prog.event">イベント</span> <b class="ev" id="pevent">—</b></div>
       <div><span data-i18n="prog.wave">陰陽の波</span> <b id="pwave">—</b></div>
+      <div><span data-i18n="prog.key">調</span> <b id="pkey">—</b></div>
     </div>
   </section>
 
@@ -355,7 +356,8 @@ ja:{
   'section.params':'パラメータ','section.clock':'クロック',
   'pad.yy':'陰陽','pad.density':'密度','pad.bpm':'BPM','pad.bar':'小節',
   'pad.yin':'陰','pad.yang':'陽','pad.sparse':'疎','pad.dense':'密',
-  'prog.phrase':'フレーズ','prog.event':'イベント','prog.wave':'陰陽の波',
+  'prog.phrase':'フレーズ','prog.event':'イベント','prog.wave':'陰陽の波','prog.key':'調',
+  'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -398,7 +400,8 @@ en:{
   'section.params':'parameters','section.clock':'clock',
   'pad.yy':'yin-yang','pad.density':'density','pad.bpm':'BPM','pad.bar':'bar',
   'pad.yin':'yin','pad.yang':'yang','pad.sparse':'sparse','pad.dense':'dense',
-  'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave',
+  'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave','prog.key':'key',
+  'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -532,6 +535,8 @@ let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後�
 let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     mixFilter=null, dry=null, revSend=null, revGain=null, dlySend=null, delayNodes=null,
     drumBus=null, drumSat=null, drumFilter=null,
+    bassBus=null, bassSum=null, bassPre=null, bassShaper=null, bassLadder=null,
+    bassAmp=null, bassComp=null, bassLfo=null, bassReady=false,
     noiseBuf=null, metalBuf=null,
     running=false, ready=false;
 
@@ -589,6 +594,23 @@ const KITS={
             perc:'metal', percGain:.60, cowbell:true},
 };
 const kit = () => KITS[SCENES[sceneIdx].kit];
+
+/* ---- 調性 (D-9) ----
+   キーはシーンごとに変え、移動先は五度圏で近い調から選ぶ。
+   音階は主回路の群ごとに変える。ベースもハーモニーもここから音を引く */
+const SCALES={
+  stab:    [0,2,3,5,7,8,10],   // 自然短音階
+  jazz:    [0,2,3,5,7,9,10],   // ドリアン。テンションを載せやすい
+  funk:    [0,3,5,7,10],       // 短調のペンタトニック
+  sustain: [0,2,4,7,9,11],     // 長調寄り。add9 / sus2 の響きを作る
+};
+const NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+let keyPc=9;   // 主音のピッチクラス。既定は A
+
+// 五度圏で隣へ動く。同じ調に留まることもある
+function moveKey(){ keyPc=(keyPc+pick([5,7,0,5,7,2]))%12; }
+const scale = () => SCALES[SCENES[sceneIdx].group];
+const mtof = m => 440*Math.pow(2,(m-69)/12);
 
 function build(){
   ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -681,6 +703,147 @@ function build(){
   build.drumSends={rev:dSend,dly:dDly};
 
   ready=true;
+}
+
+/* ============================================================
+   Ladder フィルタ (D-10)
+   ------------------------------------------------------------
+   ベースの中核。BiquadFilter の多段近似ではレゾナンスを上げたときの
+   粘りと飽和が出ないため、音声スレッドで自前に持つ。
+   4段の一次ローパスに負帰還をかけ、各段を tanh で飽和させる古典的な構成。
+   単一ファイル方針は Blob URL で読み込むことで保つ (時計と同じ手)。
+   ============================================================ */
+const LADDER_SRC=`
+class LadderProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors(){
+    return [
+      {name:'cutoff',    defaultValue:700, minValue:30, maxValue:16000, automationRate:'a-rate'},
+      {name:'resonance', defaultValue:1.4, minValue:0,  maxValue:4.2,   automationRate:'k-rate'},
+      {name:'drive',     defaultValue:1.0, minValue:.1, maxValue:8,     automationRate:'k-rate'},
+    ];
+  }
+  constructor(){ super(); this.s=[0,0,0,0]; }
+  process(inputs, outputs, params){
+    const inp=inputs[0][0], out=outputs[0][0];
+    if(!out) return true;
+    if(!inp){ out.fill(0); return true; }
+    const cut=params.cutoff, res=params.resonance[0], drv=params.drive[0];
+    const nyq=sampleRate*0.45, s=this.s;
+    for(let i=0;i<out.length;i++){
+      const fc=Math.min(cut.length>1?cut[i]:cut[0], nyq);
+      const g=1-Math.exp(-2*Math.PI*fc/sampleRate);
+      // 4段目の出力を戻す。レゾナンスを上げるほど低域が痩せるのが ladder の性格
+      const x=Math.tanh(inp[i]*drv - res*s[3]);
+      s[0]+=g*(x-Math.tanh(s[0]));
+      s[1]+=g*(Math.tanh(s[0])-Math.tanh(s[1]));
+      s[2]+=g*(Math.tanh(s[1])-Math.tanh(s[2]));
+      s[3]+=g*(Math.tanh(s[2])-Math.tanh(s[3]));
+      out[i]=s[3];
+    }
+    return true;
+  }
+}
+registerProcessor('ladder', LadderProcessor);
+`;
+let ladderReady=false;
+
+// ベースの経路を組む。Worklet が使えない環境では BiquadFilter 2段へ落とす
+function ensureBass(){
+  if(bassReady) return;
+  bassSum=ctx.createGain(); bassSum.gain.value=.5;
+  bassPre=ctx.createGain(); bassPre.gain.value=1;
+  bassShaper=ctx.createWaveShaper();
+  {
+    const n=1024, curve=new Float32Array(n);
+    for(let i=0;i<n;i++){ const x=i/(n-1)*2-1; curve[i]=Math.tanh(x*2.2); }
+    bassShaper.curve=curve; bassShaper.oversample='4x';
+  }
+  if(ladderReady){
+    bassLadder=new AudioWorkletNode(ctx,'ladder',{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]});
+  }else{
+    // 代替。粘りは出ないが鳴らないよりはよい
+    const a=ctx.createBiquadFilter(), b=ctx.createBiquadFilter();
+    a.type='lowpass'; b.type='lowpass'; a.Q.value=6; b.Q.value=.7;
+    a.connect(b);
+    bassLadder={ _a:a, _b:b, connect:(n)=>b.connect(n),
+      parameters:{ get:(k)=> k==='cutoff' ? a.frequency : k==='resonance' ? a.Q : b.gain } };
+    bassLadder.__in=a;
+  }
+  bassAmp=ctx.createGain(); bassAmp.gain.value=0;
+  bassComp=ctx.createDynamicsCompressor();
+  // 「厚めのコンプが効いた音」(D-3)。速く深くかけて質量を出す
+  bassComp.threshold.value=-22; bassComp.knee.value=6; bassComp.ratio.value=6;
+  bassComp.attack.value=.004; bassComp.release.value=.12;
+  bassBus=ctx.createGain(); bassBus.gain.value=.9;
+
+  bassSum.connect(bassPre).connect(bassShaper);
+  bassShaper.connect(bassLadder.__in || bassLadder);
+  bassLadder.connect(bassAmp);
+  bassAmp.connect(bassComp).connect(bassBus);
+  bassBus.connect(dry);
+  const bRev=ctx.createGain(); bRev.gain.value=.08; bassBus.connect(bRev).connect(revSend);
+  const bDly=ctx.createGain(); bDly.gain.value=.10; bassBus.connect(bDly).connect(dlySend);
+  build.bassSends={rev:bRev,dly:bDly};
+
+  // ゆっくりしたうねり。「ベースラインにフィルタが揺れ動く」の土台 (D-3)
+  const lo=ctx.createOscillator(), lg=ctx.createGain();
+  lo.type='sine'; lo.frequency.value=.06; lg.gain.value=0;
+  lo.connect(lg).connect(bassCutParam());
+  lo.start();
+  bassLfo={osc:lo,gain:lg};
+  bassReady=true;
+}
+const bassCutParam = () => bassLadder.parameters ? bassLadder.parameters.get('cutoff') : bassLadder.frequency;
+const bassResParam = () => bassLadder.parameters ? bassLadder.parameters.get('resonance') : null;
+const bassDrvParam = () => (bassLadder.parameters && bassLadder.parameters.get('drive')) || null;
+
+/* ============================================================
+   ベース (D-10)
+   ------------------------------------------------------------
+   矩形波3基を ±7cent でデチューンし、1オクターブ下のサブを足す。
+   飽和 → Ladder → 深いコンプ、という順で質量を作る。
+   単音なので包絡とフィルタは共有の段に持たせ、打点ごとには
+   オシレータだけを立てる。
+   ============================================================ */
+function bassNote(time,midi,durSec,vel,accent){
+  if(!bassReady) return;
+  const f=mtof(midi), t=time;
+  const oscs=[];
+  for(const cents of [-7,0,7]){
+    const o=ctx.createOscillator();
+    o.type='square'; o.frequency.value=f; o.detune.value=cents;
+    o.connect(bassSum); o.start(t); o.stop(t+durSec+.06);
+    oscs.push(o);
+  }
+  // サブ。ここが「厚み」の半分を担う
+  const sub=ctx.createOscillator(), sg=ctx.createGain();
+  sub.type='square'; sub.frequency.value=f/2;
+  sg.gain.value=.85+current.weight*.5;
+  sub.connect(sg).connect(bassSum); sub.start(t); sub.stop(t+durSec+.06);
+  oscs.push(sub);
+  for(const o of oscs) disposeAt(o,t+durSec+.12);
+  disposeAt(sg,t+durSec+.12);
+
+  // 振幅。立ち上がりは速く、切れ際だけ少し丸める
+  const g=bassAmp.gain;
+  g.cancelScheduledValues(t);
+  g.setValueAtTime(Math.max(g.value,.0001),t);
+  g.linearRampToValueAtTime(vel*.9,t+.006);
+  g.setValueAtTime(vel*.9,t+durSec*.8);
+  g.linearRampToValueAtTime(.0001,t+durSec);
+
+  // フィルタ包絡。1音ごとにカットオフを叩いて戻す。アクセントで深さが変わる
+  const cp=bassCutParam(), base=bassCutoffBase();
+  const peak=Math.min(base*(2.2+accent*4.5+current.drive*2.2), 9000);
+  cp.cancelScheduledValues(t);
+  cp.setValueAtTime(peak,t);
+  cp.exponentialRampToValueAtTime(Math.max(60,base),t+Math.min(durSec*.9,.45));
+}
+
+// カットオフの基準値。陰は低く閉じ、陽は高く開く
+function bassCutoffBase(){
+  const yy=current.yy, w=current.weight;
+  return (170+yy*680)*(1.25-w*.5);
 }
 
 /* ============================================================
@@ -853,7 +1016,9 @@ function apply(){
   revGain.gain.setTargetAtTime(.12+c.space*.55,tm,T);
   const sd=stepDur();
   delayNodes.tapL.d.delayTime.setTargetAtTime(sd*3,tm,1.2);    // 付点8分
-  delayNodes.tapR.d.delayTime.setTargetAtTime(sd*4.5,tm,1.2);  // ずらした返し
+  // 右は16分5つ。3と5はどちらも16分のグリッドに乗り、互いに素なので
+  // 返しが拍とずれ続けて dub 的な絡みになる。グリッドから外すと打点が濁る
+  delayNodes.tapR.d.delayTime.setTargetAtTime(sd*5,tm,1.2);
   const dubbing = phrase==='dubout';
   if(tm>evDelayUntil){
     delayNodes.tapL.fb.gain.setTargetAtTime(.28+c.space*.34+(dubbing?.22:0),tm,T);
@@ -871,6 +1036,23 @@ function apply(){
     drumFilter.Q.setTargetAtTime(1.0,tm,T);
   }
   if(tm>evMasterUntil) mixFilter.frequency.setTargetAtTime(20000,tm,T);
+
+  // ベース (D-10)。押し出しが飽和の入りとレゾナンスを、重さが量と音域を決める
+  if(bassReady){
+    bassPre.gain.setTargetAtTime(.6+c.drive*1.9,tm,T);
+    bassBus.gain.setTargetAtTime((phrase==='break'?.15:1)*(.55+c.weight*.6),tm,T);
+    const res=bassResParam();
+    if(res) res.setTargetAtTime(1.1+c.drive*1.5,tm,T);
+    // Ladder 自身の入力も持ち上げる。各段の tanh が効きはじめ、倍音が増える
+    const drv=bassDrvParam();
+    if(drv) drv.setTargetAtTime(.9+c.drive*3.2,tm,T);
+    bassComp.threshold.setTargetAtTime(-18-c.drive*12,tm,T);
+    // うねりの速さと深さ。密度が上がるほど速く、陽へ寄るほど深く振れる
+    bassLfo.osc.frequency.setTargetAtTime(.035+c.density*.14,tm,T);
+    bassLfo.gain.gain.setTargetAtTime(bassCutoffBase()*(.25+c.yy*.5),tm,T);
+    build.bassSends.dly.gain.setTargetAtTime(.05+c.space*.22+(dubbing?.2:0),tm,T);
+    build.bassSends.rev.gain.setTargetAtTime(.04+c.space*.14,tm,T);
+  }
 }
 
 // フレーズ型ごとのドラムの開き具合。build は16小節かけて開いていく (D-9 のレイヤー累積に対応)
@@ -918,6 +1100,8 @@ function sceneLengthBars(){
 
 function enterScene(idx,{manual=false}={}){
   sceneIdx=idx;
+  moveKey();          // キーはシーンごとに五度圏で近い調へ移る (D-9)
+  reseedPattern();    // 並びも引き直す。前のシーンの模様を持ち越さない
   sceneStartBar=barCount;
   sceneBars=sceneLengthBars();
   recent.push(idx); if(recent.length>3) recent.shift();
@@ -956,6 +1140,7 @@ function nextPhrase(){
   if(prev==='build' && p==='build' && Math.random()<.6) p='drop';
   if(prev==='break' && p==='break') p='drop';
   phrase=p; phraseStartBar=barCount;
+  reseedPattern();
   showProgress();
 }
 
@@ -987,8 +1172,24 @@ function maybeEvent(bar,time){
    ハットがベタになるかのどちらかに落ちるため。
    各トラックは16個の強さ (0 なら鳴らさない) を持つ。
    ============================================================ */
-const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[]};
+const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[],bass:[]};
 let hatRot=0, percPer=[3,5], percOff=[0,0], kickVariant=null;
+
+/* 並びは毎小節引き直すが、種が同じなら同じ並びが出る。
+   種が変わるのはシーン・フレーズが切り替わったときと、変異が当たったときだけ。
+   こうしないとミニマルに要る反復が出ず、小節ごとにばらばらの並びになってしまう */
+let patSeed=1234;
+function rng(seed){
+  let a=seed>>>0;
+  return ()=>{
+    a+=0x6D2B79F5;
+    let t=a;
+    t=Math.imul(t^t>>>15,t|1);
+    t^=t+Math.imul(t^t>>>7,t|61);
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+function reseedPattern(){ patSeed=(Math.random()*1e9)|0; }
 
 // ユークリッドリズム E(k,n)。k個を n個の枠へ均した位置に置く。
 // Bjorklund の厳密な手続きではないが、等間隔に散る点は同じで、定型から外れた並びが得られる
@@ -1018,31 +1219,80 @@ function applyKickOp(k,op){
   }
 }
 
+/* ---- ベースの並び (D-7) ----
+   音の並びより「フィルタがどう動くか」で性格が決まるトラックなので、
+   位置と音価をシーンの陰陽から決め、度数は重み表から引く */
+const BASS_GRIDS={
+  slow:   [0,8],
+  mid:    [0,6,8,14],
+  eighth: [0,2,4,6,8,10,12,14],
+  funk:   [0,3,6,8,11,14],
+  busy:   [0,2,3,6,8,10,11,14],
+};
+// 音階の何番目を引くか。主音と5度を厚くする
+const DEG_W=[5,1,1.6,1,3,1,1.2];
+
+function bassBar(bar,R,kickPat){
+  const sc=SCENES[sceneIdx], yy=current.yy, d=current.density;
+  const sl=scale(), root=28+keyPc;
+  const out=new Array(16).fill(null);
+  if(phrase==='break') return out;   // ブレイクではベースも抜く
+
+  const grid = sc.group==='funk' ? (R()<.5?BASS_GRIDS.funk:BASS_GRIDS.busy)
+             : yy<.32 ? BASS_GRIDS.slow
+             : yy<.55 ? BASS_GRIDS.mid
+             : (R()<.5?BASS_GRIDS.eighth:BASS_GRIDS.mid);
+  const busy=clamp(.35+yy*.45+d*.2);
+  const legato = yy<.4 ? .95 : .6;   // 陰は音価が長く、陽は短く刻む
+
+  const hits=[];
+  for(const i of grid){ if(i===0 || R()<busy) hits.push(i); }
+  if(!hits.length) hits.push(0);
+
+  const sumW=DEG_W.reduce((a,b)=>a+b,0);
+  for(let n=0;n<hits.length;n++){
+    const i=hits[n];
+    let deg=0;
+    if(i!==0){
+      let r=R()*sumW;
+      for(let k=0;k<sl.length;k++){ r-=DEG_W[k%DEG_W.length]; if(r<=0){ deg=sl[k]; break; } }
+    }
+    const oct = (yy>.6 && R()<.22) ? 12 : 0;
+    const next = n+1<hits.length ? hits[n+1] : 16;
+    const steps=Math.max(1,(next-i)*legato);
+    // キックと同じ位置はアクセント。フィルタの叩き方が変わる
+    const acc = (kickPat[i]||0)>0 ? .85 : .3;
+    out[i]={midi:root+deg+oct, steps, vel:.55+acc*.35, accent:acc};
+  }
+  return out;
+}
+
 // 小節ごとの並びを引き直す。onBar() の頭で呼ぶ
 function regenerate(bar){
   const sc=SCENES[sceneIdx], d=current.density;
   const funk = sc.group==='funk';
   const quiet = phrase==='break', dub = phrase==='dubout';
 
-  // --- 変異 (D-7)。トラックごとに率を分け、土台は守る
-  const mu=current.mutate;
-  if(Math.random()<mu*.9) hatRot=Math.floor(Math.random()*16);
-  if(Math.random()<mu*.7){
-    percPer=[pick([3,5,7]),pick([5,7,11])];
-    percOff=[Math.floor(Math.random()*16),Math.floor(Math.random()*16)];
-  }
+  // --- 変異 (D-7)。当たったときだけ種を引き直し、それまでは同じ並びを繰り返す
+  if(Math.random()<current.mutate*.5) reseedPattern();
+  // 2小節でひと組。偶数小節と奇数小節で別の顔を持たせる
+  const R=rng(patSeed+(bar%2)*7919);
+
+  if(R()<.5) hatRot=Math.floor(R()*16);
+  percPer=[[3,5,7][Math.floor(R()*3)],[5,7,11][Math.floor(R()*3)]];
+  percOff=[Math.floor(R()*16),Math.floor(R()*16)];
 
   // --- キック: 4つ打ちを基本堅持。節目でだけ崩す
   const k=new Array(16).fill(0);
   if(funk && !quiet){
-    for(const i of pick(FUNK_KICK)) k[i]=1;
+    for(const i of FUNK_KICK[Math.floor(R()*FUNK_KICK.length)]) k[i]=1;
   }else{
     for(const i of [0,4,8,12]) k[i]=1;
   }
   if(dub){ k[4]=0; k[12]=0; }               // dub 局面は2拍ぶんだけ残す
-  // 8小節の終わりと16小節の終わりでのみ変形する。それ以外の小節は素のまま
+  // 8小節の終わりでのみ変形する。それ以外の小節は素のまま
   const edge = (bar%8===7);
-  kickVariant = edge ? pick(KICK_OPS) : null;
+  kickVariant = edge ? KICK_OPS[Math.floor(Math.random()*KICK_OPS.length)] : null;
   if(kickVariant) applyKickOp(k,kickVariant);
   if(quiet) k.fill(0);
   k[0]=quiet?0:Math.max(k[0],1);            // 小節頭は変異させない (ブレイク中を除く)
@@ -1054,8 +1304,8 @@ function regenerate(bar){
     if(sc.kit==='electro' || funk){ cl[4]=1; cl[12]=1; }
     else { sn[4]=1; sn[12]=1; }
     if(funk){
-      if(Math.random()<.6) sn[7]=.35;
-      if(Math.random()<.4) sn[14]=.3;
+      if(R()<.6) sn[7]=.35;
+      if(R()<.4) sn[14]=.3;
     }
     if(edge && Math.random()<.5) sn[15]=.5;   // 小節をまたぐ手前の合図
   }
@@ -1066,13 +1316,13 @@ function regenerate(bar){
   const hat=new Array(16).fill(0), oh=new Array(16).fill(0);
   for(let i=0;i<16;i++){
     if(!e[(i+hatRot)%16]) continue;
-    if(Math.random()>0.45+d*.55) continue;      // 密度が低いと抜ける
-    hat[i]=(i%4===0?.9:i%2===0?.7:.55)*rand(.85,1.12);
+    if(R()>0.45+d*.55) continue;               // 密度が低いと抜ける
+    hat[i]=(i%4===0?.9:i%2===0?.7:.55)*(.85+R()*.27);
   }
-  if(!quiet && Math.random()<.55){
-    // オープンハットは裏拍にひとつだけ。定型を避けるため位置は毎小節引き直す
-    const cand=[2,6,10,14].filter(i=>hat[i]>0 || Math.random()<.4);
-    if(cand.length){ const i=pick(cand); oh[i]=.8; hat[i]=0; }
+  if(!quiet && R()<.55){
+    // オープンハットは裏拍にひとつだけ。定型を避けるため位置は種ごとに引き直す
+    const cand=[2,6,10,14].filter(i=>hat[i]>0 || R()<.4);
+    if(cand.length){ const i=cand[Math.floor(R()*cand.length)]; oh[i]=.8; hat[i]=0; }
   }
   seq.hat=hat; seq.ohat=oh;
 
@@ -1081,17 +1331,20 @@ function regenerate(bar){
   const p1=new Array(16).fill(0), p2=new Array(16).fill(0);
   for(let i=0;i<16;i++){
     const g=bar*16+i;
-    if(g%percPer[0]===percOff[0]%percPer[0] && Math.random()<.35+d*.5) p1[i]=rand(.5,.9);
-    if(g%percPer[1]===percOff[1]%percPer[1] && Math.random()<.25+d*.45) p2[i]=rand(.4,.8);
+    if(g%percPer[0]===percOff[0]%percPer[0] && R()<.35+d*.5) p1[i]=.5+R()*.4;
+    if(g%percPer[1]===percOff[1]%percPer[1] && R()<.25+d*.45) p2[i]=.4+R()*.4;
   }
   seq.perc1=p1; seq.perc2=p2;
 
   // --- リム: 陰のキットだけ、まばらに
   const rm=new Array(16).fill(0);
   if(sc.kit==='deep' || dub){
-    for(let i=0;i<16;i++) if(Math.random()<.06+d*.10) rm[i]=rand(.4,.8);
+    for(let i=0;i<16;i++) if(R()<.06+d*.10) rm[i]=.4+R()*.4;
   }
   seq.rim=rm;
+
+  // --- ベース
+  seq.bass=bassBar(bar,R,k);
 }
 
 /* ============================================================
@@ -1184,6 +1437,8 @@ function playStep(i,time){
     if(seq.hat[i])  hh(time+rand(-.002,.003),seq.hat[i],false);
     if(seq.ohat[i]) hh(time,seq.ohat[i],true);
   }
+  const b=seq.bass[i];
+  if(b) bassNote(time,b.midi,b.steps*sw,b.vel,b.accent);
   if(seq.perc1[i]) perc(time,seq.perc1[i],-.45,.2);
   if(seq.perc2[i]) perc(time,seq.perc2[i], .50,1.1);
   if(seq.rim[i])   rim(time,seq.rim[i],rand(-.6,.6));
@@ -1386,6 +1641,7 @@ const pPhrase=document.getElementById('pphrase');
 const pBarPos=document.getElementById('pbarpos');
 const pEvent=document.getElementById('pevent');
 const pWave=document.getElementById('pwave');
+const pKey=document.getElementById('pkey');
 function showProgress(){
   pPhrase.textContent=t(`phrase.${phrase}`);
   const inPhrase=barCount-phraseStartBar+1;
@@ -1395,6 +1651,7 @@ function showProgress(){
     : `${t('event.'+lastEvent)}  @bar ${lastEventBar}`;
   const yy=waveYY(wavePos);
   pWave.textContent=`${yy.toFixed(2)}  ${(wavePos*100).toFixed(0)}%  / ${Math.round(wavePeriod/60)}min`;
+  pKey.textContent=`${NOTE_NAMES[keyPc]} ${t('mode.'+SCENES[sceneIdx].group)}`;
 }
 
 /* ---- XY パッド ---- */
@@ -1518,6 +1775,12 @@ async function startClock(){
     const url=URL.createObjectURL(new Blob([CLOCK_SRC],{type:'text/javascript'}));
     try{
       await ctx.audioWorklet.addModule(url);
+      // Ladder も同じ入口で読む。こちらが失敗してもクロックは動かす
+      try{
+        const lurl=URL.createObjectURL(new Blob([LADDER_SRC],{type:'text/javascript'}));
+        try{ await ctx.audioWorklet.addModule(lurl); ladderReady=true; }
+        finally{ URL.revokeObjectURL(lurl); }
+      }catch(e){ ladderReady=false; }
       clockNode=new AudioWorkletNode(ctx,'clock',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[1]});
       clockNode.port.onmessage=tick;
       clockNode.connect(comp);   // 繋がないと process が呼ばれない。出力は無音なので混ざらない
@@ -1621,6 +1884,7 @@ async function startAudio(){
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1;
   evFilterUntil=0; evMasterUntil=0; evDelayUntil=0;
   await startClock();
+  ensureBass();   // Ladder の読み込み結果が要るので、時計のあとに組む
   routeToSink().catch(()=>{});   // 完了を待たない
   setupMediaSession();
   if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
