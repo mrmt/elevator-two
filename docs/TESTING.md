@@ -58,3 +58,20 @@ npm test
 - **周波数を予約で与えている音は `.value` を読んでも分からない**。バスドラム・スネア・
   タムは `frequency.setValueAtTime()` で音程を与えるので、`.value` は既定の 440 のまま。
   これらを調べるときは `setValueAtTime` のほうを包む
+
+## 検索語を手で試す
+
+`tools/yt-probe.sh` が、アプリと同じ条件で YouTube の検索を叩いて件数を出す。
+検索語は `index.html` の `SCENE_QUERY` から読むので、二重管理にはならない。
+
+```
+./tools/yt-probe.sh <APIキー>            全14シーンの件数
+./tools/yt-probe.sh <APIキー> submerge   1シーンだけ、題名と動画IDまで
+./tools/yt-probe.sh --dry-run            叩かずにURLだけ
+```
+
+0件のシーンでは、長さの条件 (`videoDuration=long`) を外した場合の件数も併せて出る。
+在庫が薄いシーンが多いようなら `long` を `medium` に緩めるのが次の手 (D-33)。
+
+**クォータに注意。** 検索は1回100単位、既定の上限は1日1万単位。14シーンを一巡すると
+1400単位使う。何度も試すときはシーンを絞ること。

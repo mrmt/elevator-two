@@ -17,6 +17,7 @@
 D-1 〜 D-13 として決定事項を、末尾に実装の順序を記した。
 シーンの定義は [docs/SCENES.md](docs/SCENES.md)、実装の構造は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、
 テストは [docs/TESTING.md](docs/TESTING.md) に分けてある。
+背景動画の検索語を手で試す `tools/yt-probe.sh` もある。
 
 ## 目指すもの
 
