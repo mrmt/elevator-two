@@ -157,3 +157,86 @@ test('ベースが和音のルート音を基本にする', async ({ page }) => 
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
   expect(Number(top)).toBe(rootPc);
 });
+
+test('並びが切り替わる前の小節にオカズが入る', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-20。タムは正弦波のピッチ落ちで作るので、予約された周波数を見れば拾える。
+  // バスドラムとスネアも正弦なので、そちらの決まった値は除く
+  await page.addInitScript(() => {
+    window.__sine = [];
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const sv = o.frequency.setValueAtTime.bind(o.frequency);
+      o.frequency.setValueAtTime = function (v, t) {
+        if (o.type === 'sine') window.__sine.push([Math.round(v), t]);
+        return sv(v, t);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(10).click();   // 曙 daybreak
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1200);
+  const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
+
+  await page.evaluate(() => { window.__sine.length = 0; });
+  await page.waitForTimeout(30000);
+  const sine = await page.evaluate(() => window.__sine);
+
+  // 最頻の2〜3個はバスドラムとスネアの決まった値。残りがタム
+  const hist = {};
+  for (const [v] of sine) hist[v] = (hist[v] || 0) + 1;
+  const common = Object.entries(hist).filter(([, c]) => c > sine.length * 0.1).map(([v]) => Number(v));
+  const toms = sine.filter(([v]) => !common.includes(v)).map(([, t]) => t);
+  expect(toms.length).toBeGreaterThan(3);
+
+  // オカズは小節の後ろ半分に置かれる。はみ出したぶんだけが頭に来る
+  const bar = (60 / bpm) * 4;
+  const base = Math.floor(Math.min(...toms) / bar) * bar;
+  const inBar = toms.map(t => ((t - base) / bar) % 1);
+  const late = inBar.filter(u => u > 0.5).length;
+  expect(late / inBar.length).toBeGreaterThan(0.6);
+});
+
+test('16分のシーケンスが鳴る', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-21。潜行はスタブ回路のシーンなので、持続回路の層 (アルペジオと高域リフ) は出ない。
+  // 300Hz より上の非正弦オシレータは、実質このシーケンスだけになる
+  await page.addInitScript(() => {
+    window.__lead = [];
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const start = o.start.bind(o);
+      o.start = function (when) {
+        if (o.type !== 'sine' && o.frequency.value > 300 && o.frequency.value < 1200) {
+          window.__lead.push(when);
+        }
+        return start(when);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(0).click();    // 潜行 submerge
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1200);
+  const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
+
+  await page.evaluate(() => { window.__lead.length = 0; });
+  await page.waitForTimeout(10000);
+  const lead = await page.evaluate(() => window.__lead);
+  expect(lead.length).toBeGreaterThan(25);
+
+  // 16分の格子に乗っていること
+  const step = (60 / bpm) / 4;
+  expect(gridFit(lead, step, 0.05)).toBeGreaterThan(0.95);
+  // 8分より細かい位置にも置かれていること (16分のシーケンスである証拠)
+  const base = Math.min(...lead);
+  const odd = lead.filter(t => Math.round((t - base) / step) % 2 === 1).length;
+  expect(odd).toBeGreaterThan(3);
+});
