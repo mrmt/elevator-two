@@ -1300,6 +1300,8 @@ function phraseCutoff(){
    進行 — 第1層 シーン (D-4 / D-12 / D-13)
    ============================================================ */
 let sceneIdx=0;          // いま鳴っているシーン
+let pendingScene=-1;     // 遷移中の行き先。ブレイクが明けたらここへ移る
+let transitionEndBar=-1;
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
 let recent=[];           // 直近に出たシーン。同じものを続けて引かないため
@@ -1324,11 +1326,13 @@ function chooseScene(){
 // evolution が高いほどシーンは短い。2〜5分 (D-12) を小節数に直す
 function sceneLengthBars(){
   const sec=lerp(300,120,current.evolution)*rand(.85,1.15);
-  return Math.max(16, Math.round(sec/(60/bpmNow()*4)/16)*16);   // 16小節の倍数に丸める
+  // 16小節の倍数に丸める。末尾の8小節は遷移のブレイクに使うので、最低でも32小節取る
+  return Math.max(32, Math.round(sec/(60/bpmNow()*4)/16)*16);
 }
 
 function enterScene(idx,{manual=false}={}){
   sceneIdx=idx;
+  if(manual){ pendingScene=-1; transitionEndBar=-1; }   // 手で選んだら遷移は打ち切る
   moveKey();          // キーはシーンごとに五度圏で近い調へ移る (D-9)
   reseedPattern();    // 並びも引き直す。前のシーンの模様を持ち越さない
   pickProg();         // 回路が変わるので和音の進行も選び直す
@@ -1354,6 +1358,7 @@ function yyToWavePos(yy){
 
 /* ---- 第2層 フレーズ (16小節) ---- */
 const PHRASE_BARS=16;
+const TRANSITION_BARS=8;   // 遷移に充てるブレイクの長さ (D-5 方式1)
 let phrase='plateau', phraseStartBar=0;
 
 function choosePhrase(){
@@ -1672,10 +1677,14 @@ function fireEvent(id,bar,time){
 let stepIdx=0, barCount=0, nextStepTime=0, uiStep=-1, arpPos=0;
 const uiSteps=[];   // 表示の予定。遅れて届いた分は最新だけ描く
 
-function bpmNow(){
-  // シーンの bpm を、BPM スライダーの中心値のぶんだけ平行移動する (D-11)
-  return clamp(SCENES[sceneIdx].bpm + (bpmCenter-125), 100, 150);
+// シーンの bpm を、BPM スライダーの中心値のぶんだけ平行移動する (D-11)。
+// 遷移中は次のシーンの値を目標にして、ブレイクの間に寄せていく (D-6)
+function bpmTarget(){
+  const sc = pendingScene>=0 ? SCENES[pendingScene] : SCENES[sceneIdx];
+  return clamp(sc.bpm + (bpmCenter-125), 100, 150);
 }
+let bpmCur=125;
+function bpmNow(){ return bpmCur; }
 function stepDur(){ return 60/bpmNow()/4; }   // 16分音符
 
 // 1ステップぶんの予約。並びに従ってドラムを鳴らす
@@ -1735,15 +1744,33 @@ function runStepUI(now){
   if(bestIdx>=0 && bestIdx!==uiStep){ uiStep=bestIdx; renderSteps(); }
 }
 
+// 遷移を始める。ブレイクを置き、その中でキット・和音・編成・BPM を乗り換える (D-5 方式1)。
+// 自動の切り替えと「次へ」の両方がここを通る
+function startTransition(bar,bars){
+  newWavePeriod();
+  pendingScene=chooseScene();
+  transitionEndBar=bar+bars;
+  phrase='break'; phraseStartBar=bar;
+  reseedPattern();
+  epGuest=false;
+  showProgress();
+}
+
 // 小節の頭で3階層を進める。ここが進行の中心。
 // フレーズとシーンを先に決めてから並びを引き直す (両者が並びの前提になるため)
 function onBar(bar,time){
-  if(bar-phraseStartBar>=PHRASE_BARS) nextPhrase();
-  // シーンの切り替えはフレーズの切れ目でのみ起きる。途中で切らない
-  if(bar-sceneStartBar>=sceneBars && bar===phraseStartBar){
-    newWavePeriod();
-    enterScene(chooseScene());
+  // ---- シーン遷移 (D-5 方式1: ブレイクを挟む) ----
+  // 終わりの8小節をブレイクに充て、その間にキット・和音・編成・BPM を乗り換える
+  if(pendingScene<0 && bar-sceneStartBar>=sceneBars-TRANSITION_BARS && (bar-phraseStartBar)%8===0){
+    startTransition(bar,TRANSITION_BARS);
   }
+  if(pendingScene>=0 && bar>=transitionEndBar){
+    const nxt=pendingScene;
+    pendingScene=-1;
+    enterScene(nxt);
+    nextPhrase();       // ブレイク明けは新しいシーンのフレーズから始める
+  }
+  if(bar-phraseStartBar>=PHRASE_BARS && pendingScene<0) nextPhrase();
   // 和音を進める。間隔は回路ごとに違い、スタブはほとんど動かない (D-9)
   if(bar-chordAt>=CHORD_BARS[circuit()]){
     // シーンに入った直後は進行の1つ目から始める。そこで進めると頭を飛ばしてしまう
@@ -1779,6 +1806,8 @@ function smooth(){
   const tau=Math.max(1,glide)/3;
   const k=1-Math.exp(-dt/tau);
   for(const key in P) current[key]+=(target[key]-current[key])*k;
+  // BPM は推移時間とは別に、常に一定の速さで寄せる。急に変わると拍が飛ぶ
+  bpmCur += (bpmTarget()-bpmCur)*(1-Math.exp(-dt/6));
 
   // 波を進め、手で触られていない限り陰陽の目標を波に従わせる (D-13)
   if(running && !dragging){
@@ -1833,8 +1862,14 @@ function highlightScene(){
 // 「次へ」— いまのシーンを打ち切り、波を少し進めてから次を引く (D-13)
 document.getElementById('next').addEventListener('click',e=>{
   wavePos=(wavePos+0.06)%1;
-  newWavePeriod();
-  enterScene(chooseScene());
+  if(running){
+    // 鳴っている間は自動の切り替えと同じブレイクを挟む。
+    // ただし押した手応えが要るので、長さは半分にする (D-16)
+    startTransition(barCount,TRANSITION_BARS/2);
+  }else{
+    newWavePeriod();
+    enterScene(chooseScene());
+  }
   const b=e.currentTarget;
   b.setAttribute('aria-pressed','true');
   setTimeout(()=>b.setAttribute('aria-pressed','false'),260);
@@ -1922,7 +1957,8 @@ const pWave=document.getElementById('pwave');
 const pKey=document.getElementById('pkey');
 const pChord=document.getElementById('pchord');
 function showProgress(){
-  pPhrase.textContent=t(`phrase.${phrase}`);
+  pPhrase.textContent=t(`phrase.${phrase}`)
+    + (pendingScene>=0 ? ` → ${t('scene.'+SCENES[pendingScene].id+'.name')}` : '');
   const inPhrase=barCount-phraseStartBar+1;
   const inScene=barCount-sceneStartBar+1;
   pBarPos.textContent=`${inPhrase}/${PHRASE_BARS}  (scene ${inScene}/${sceneBars})`;
@@ -2163,7 +2199,9 @@ async function startAudio(){
   phraseStartBar=0; sceneStartBar=0;
   sceneBars=sceneLengthBars();
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1;
+  pendingScene=-1; transitionEndBar=-1;
   evFilterUntil=0; evMasterUntil=0; evDelayUntil=0;
+  bpmCur=bpmTarget();
   await startClock();
   ensureBass();   // Ladder の読み込み結果が要るので、時計のあとに組む
   routeToSink().catch(()=>{});   // 完了を待たない
@@ -2176,6 +2214,7 @@ function stopAudio(){
   running=false;
   setPowerUI(false);
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
+  pendingScene=-1; transitionEndBar=-1;
   flushSteps();
   uiStep=-1; renderSteps();
   apply();

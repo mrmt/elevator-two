@@ -134,3 +134,41 @@ test('スタブのシーンでは和音がほとんど動かない', async ({ pa
   await page.waitForTimeout(12000);   // 8小節ぶんほど
   expect((await page.locator('#pchord').textContent()).split(' ')[0]).toBe(first);
 });
+
+test('「次へ」はブレイクを挟んでシーンを乗り換える', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-5 方式1。自動の切り替えと同じ機構を通り、ブレイクの間に行き先が表示される
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1500);
+
+  const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
+  await page.locator('#next').click();
+
+  // ブレイクに入り、行き先が矢印付きで出る
+  await expect(page.locator('#pphrase')).toContainText('→', { timeout: 8000 });
+  await expect(page.locator('#pphrase')).toContainText('ブレイク');
+  // まだシーンは変わっていない
+  expect((await page.locator('#scenename').textContent()).replace(' (edit)', '')).toBe(before);
+
+  // 4小節ぶんのブレイクが明けたら乗り換わる
+  await expect.poll(async () => (await page.locator('#scenename').textContent()).replace(' (edit)', ''),
+    { timeout: 30000, intervals: [300] }).not.toBe(before);
+  await expect(page.locator('#pphrase')).not.toContainText('→');
+});
+
+test('遷移中はBPMが次のシーンへ向かって動く', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-6。BPM は乗り換えの瞬間に飛ぶのではなく、ブレイクの間に寄っていく
+  await page.locator('.scenebtn').nth(0).click();    // 潜行 118
+  await page.locator('#play').click();
+  await page.waitForTimeout(3000);
+  const before = parseInt(await page.locator('#rbpm').textContent(), 10);
+  expect(before).toBe(118);
+
+  await page.locator('#next').click();
+  // 行き先の BPM は選ばれるまで分からないので、値が動くことだけを見る
+  await expect.poll(() => page.locator('#rbpm').textContent().then(v => parseInt(v, 10)),
+    { timeout: 30000, intervals: [300] }).not.toBe(before);
+});
