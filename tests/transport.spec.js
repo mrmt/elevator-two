@@ -104,3 +104,33 @@ test('スライダーを触ると (edit) が付く', async ({ page }) => {
   await page.locator('#s_drive').fill('0.9');
   await expect(page.locator('#scenename')).toContainText('(edit)');
 });
+
+test('シーンごとに使うハーモニー回路が変わる', async ({ page }) => {
+  // D-8 のとおり、3回路のどれを鳴らすかはシーンが決める
+  const cases = [[0, 'スタブ'], [5, 'エレピ'], [10, '持続'], [7, '持続(薄)']];
+  for (const [idx, label] of cases) {
+    await page.locator('.scenebtn').nth(idx).click();
+    await expect(page.locator('#pchord')).toContainText(label);
+  }
+});
+
+test('和音が進行する', async ({ page }) => {
+  test.setTimeout(90000);
+  // 硝子 (glass) はジャズ回路のシーン。和音は4小節ごとに動く
+  await page.locator('.scenebtn').nth(5).click();
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  const first = (await page.locator('#pchord').textContent()).split(' ')[0];
+  await expect.poll(async () => (await page.locator('#pchord').textContent()).split(' ')[0],
+    { timeout: 60000, intervals: [500] }).not.toBe(first);
+});
+
+test('スタブのシーンでは和音がほとんど動かない', async ({ page }) => {
+  // スタブ回路は進行しない (D-9)。16小節に一度しか変わらない
+  await page.locator('.scenebtn').nth(0).click();
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  const first = (await page.locator('#pchord').textContent()).split(' ')[0];
+  await page.waitForTimeout(12000);   // 8小節ぶんほど
+  expect((await page.locator('#pchord').textContent()).split(' ')[0]).toBe(first);
+});

@@ -1,6 +1,6 @@
 // 実際に音が出ているかを見る。ヘッドレスWebKitはAudioContextのresumeが不安定なためChromiumのみ。
 import { test, expect } from '@playwright/test';
-import { installAudioProbe, maxPeakOver, recordLowEnvelope, findOnsets } from './helpers/audio.js';
+import { installAudioProbe, maxPeakOver, installScheduleProbe, takeStarts, gridFit } from './helpers/audio.js';
 
 test.beforeEach(async ({ page }) => {
   await installAudioProbe(page);
@@ -32,42 +32,28 @@ test('音量を0にすると無音になる', async ({ page }) => {
   expect(peak).toBeLessThan(0.01);
 });
 
-test('打点が16分のグリッドに乗る', async ({ page }) => {
+test('音の予約が16分のグリッドに乗る', async ({ page }) => {
   test.setTimeout(60000);
+  await installScheduleProbe(page);
+  await page.goto('/index.html');
   // 曙 (daybreak) は素直な4つ打ちのシーン。
-  // 低域にはキックとベースの両方が出るので、間隔ではなく「拍に整列しているか」を見る
+  // グリッチは32分に置き直す仕掛けなので、定義からしてこの格子には乗らない。切っておく
   await page.locator('.scenebtn').nth(10).click();
-  // グリッチは32分に置き直す仕掛けなので、定義からしてこの格子には乗らない。
-  // 空間 (リバーブとディレイ) の返しも立ち上がりを鈍らせるので、どちらも切ってから測る
   await page.locator('#s_glitch').fill('0');
-  await page.locator('#s_space').fill('0');
-  await page.locator('#s_glide').fill('3');
   await page.locator('#play').click();
-  await page.waitForTimeout(4000);
+  await page.waitForTimeout(1500);
   const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
 
-  const env = await recordLowEnvelope(page, 9000);
-  const onsets = findOnsets(env);
-  expect(onsets.length).toBeGreaterThan(8);
+  await takeStarts(page);            // 立ち上がりぶんは捨てる
+  await page.waitForTimeout(9000);
+  const starts = await takeStarts(page);
+  expect(starts.length).toBeGreaterThan(80);
 
-  // 拍そのものではなく16分のグリッドで見る。ベースは8分や16分にも置かれるので、
-  // 「すべての打点が同じ格子の上にある」ことが確かめたい不変条件になる。
-  // 位相の原点は分からないので、ずれが最小になる原点を総当たりで探す
+  // ハットには打点ごとに ±3ms ほどの揺らぎを乗せてある (16分のおよそ2.5%)。
+  // なお、クラップの連射・エレピの分散・グリッチの32分は設計上わざと格子から外している。
+  // 曙 (warm キット、スネア) を選び、グリッチを切っているのはそれらを避けるため
   const step = (60 / bpm) / 4;
-  // 格子から 8% (約10ms) 以内に収まる打点の割合を、原点を動かしながら最大化する。
-  // 中央値で見ると、立ち上がりの検出が遅れた数点に引きずられて紛れるため、割合で見る
-  let best = 0;
-  for (let k = 0; k < 400; k++) {
-    const off = (step * k) / 400;
-    const near = onsets.filter(t => {
-      const r = ((t - off) % step + step) % step;
-      return Math.min(r, step - r) / step < 0.08;
-    }).length;
-    best = Math.max(best, near / onsets.length);
-  }
-  // 打点が格子に乗っていなければこの割合は 0.16 前後まで落ちる (窓が 8%×2 のため)。
-  // 実測はおおむね 0.8 以上なので、間に十分な開きがある
-  expect(best).toBeGreaterThan(0.6);
+  expect(gridFit(starts, step, 0.05)).toBeGreaterThan(0.95);
 });
 
 test('Ladder フィルタが AudioWorklet で動く', async ({ page }) => {

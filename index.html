@@ -323,7 +323,7 @@
       <div><span data-i18n="prog.phrase">フレーズ</span> <b id="pphrase">—</b> <span id="pbarpos"></span></div>
       <div><span data-i18n="prog.event">イベント</span> <b class="ev" id="pevent">—</b></div>
       <div><span data-i18n="prog.wave">陰陽の波</span> <b id="pwave">—</b></div>
-      <div><span data-i18n="prog.key">調</span> <b id="pkey">—</b></div>
+      <div><span data-i18n="prog.key">調</span> <b id="pkey">—</b> <span id="pchord"></span></div>
     </div>
   </section>
 
@@ -358,6 +358,7 @@ ja:{
   'pad.yin':'陰','pad.yang':'陽','pad.sparse':'疎','pad.dense':'密',
   'prog.phrase':'フレーズ','prog.event':'イベント','prog.wave':'陰陽の波','prog.key':'調',
   'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
+  'circuit.stab':'スタブ','circuit.jazz':'エレピ','circuit.sustain':'持続','circuit.funk':'持続(薄)',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -402,6 +403,7 @@ en:{
   'pad.yin':'yin','pad.yang':'yang','pad.sparse':'sparse','pad.dense':'dense',
   'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave','prog.key':'key',
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
+  'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -537,6 +539,7 @@ let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     drumBus=null, drumSat=null, drumFilter=null,
     bassBus=null, bassSum=null, bassPre=null, bassShaper=null, bassLadder=null,
     bassAmp=null, bassComp=null, bassLfo=null, bassReady=false,
+    padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
     noiseBuf=null, metalBuf=null,
     running=false, ready=false;
 
@@ -702,7 +705,114 @@ function build(){
   const dDly =ctx.createGain(); dDly.gain.value=.3;  drumFilter.connect(dDly).connect(dlySend);
   build.drumSends={rev:dSend,dly:dDly};
 
+  buildHarmony();
   ready=true;
+}
+
+/* ============================================================
+   ハーモニー3回路 (D-8 / D-9)
+   ------------------------------------------------------------
+   汎用の和音生成器のパラメータ違いではなく、別々の回路として持つ。
+   同時に鳴ることは基本的に想定せず、シーンがどれを使うかを選ぶ。
+   ============================================================ */
+function buildHarmony(){
+  // ---- 持続回路 (陽) ----
+  // 4層を持ち、build のフレーズで下から積み上がる (D-9)
+  padBus=ctx.createGain(); padBus.gain.value=0;
+  padFilter=ctx.createBiquadFilter();
+  padFilter.type='lowpass'; padFilter.frequency.value=1800; padFilter.Q.value=.8;
+  padFilter.connect(padBus);
+
+  // 弦楽アンサンブル的なコーラス。左右に振った2つの短いディレイを揺らす
+  const chA=ctx.createDelay(.06), chB=ctx.createDelay(.06);
+  chA.delayTime.value=.013; chB.delayTime.value=.021;
+  for(const [d,f,dep] of [[chA,.11,.0035],[chB,.17,.0045]]){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.value=f; g.gain.value=dep;
+    o.connect(g).connect(d.delayTime); o.start();
+  }
+  const pL=ctx.createStereoPanner(), pR=ctx.createStereoPanner();
+  pL.pan.value=-.7; pR.pan.value=.7;
+  const chG=ctx.createGain(); chG.gain.value=.6;
+  padFilter.connect(chA).connect(pL).connect(chG);
+  padFilter.connect(chB).connect(pR).connect(chG);
+  chG.connect(padBus);
+
+  padLayer=[];
+  for(let i=0;i<4;i++){
+    const g=ctx.createGain(); g.gain.value=0;
+    g.connect(padFilter);
+    padLayer.push(g);
+  }
+  padBus.connect(dry);
+  const pRev=ctx.createGain(); pRev.gain.value=.3; padBus.connect(pRev).connect(revSend);
+  const pDly=ctx.createGain(); pDly.gain.value=.15; padBus.connect(pDly).connect(dlySend);
+
+  // ---- スタブ回路 (陰) ----
+  // 原音はほとんど出さず、ディレイへのセンドを主とする (D-9)
+  stabBus=ctx.createGain(); stabBus.gain.value=1;
+  stabFilter=ctx.createBiquadFilter();
+  stabFilter.type='lowpass'; stabFilter.frequency.value=2400; stabFilter.Q.value=2.2;
+  stabBus.connect(stabFilter);
+  const sDry=ctx.createGain(); sDry.gain.value=.22; stabFilter.connect(sDry).connect(dry);
+  const sRev=ctx.createGain(); sRev.gain.value=.5;  stabFilter.connect(sRev).connect(revSend);
+  const sDly=ctx.createGain(); sDly.gain.value=.9;  stabFilter.connect(sDly).connect(dlySend);
+
+  // ---- ジャズ / ボッサ回路 (彩り) ----
+  epBus=ctx.createGain(); epBus.gain.value=.5;
+  epBus.connect(dry);
+  const eRev=ctx.createGain(); eRev.gain.value=.35; epBus.connect(eRev).connect(revSend);
+  const eDly=ctx.createGain(); eDly.gain.value=.2;  epBus.connect(eDly).connect(dlySend);
+
+  build.harmSends={pad:{rev:pRev,dly:pDly}, stab:{dry:sDry,rev:sRev,dly:sDly}, ep:{rev:eRev,dly:eDly}};
+}
+
+/* ---- 和音 ----
+   度数は主音からの半音数。品質ごとの構成音を持つ */
+const QUALITIES={
+  m7:  [0,3,7,10],
+  m9:  [0,3,7,10,14],
+  m11: [0,3,7,10,14,17],
+  maj9:[0,4,7,11,14],
+  add9:[0,4,7,14],
+  sus2:[0,2,7,14],
+  x13: [0,4,10,14,21],
+};
+// 進行。回路ごとに持つ。スタブは進行しない (D-9)
+const PROGS={
+  stab:    [ [[0,'m9']], [[0,'m9'],[10,'m7']] ],
+  sustain: [ [[0,'add9'],[5,'add9']], [[0,'add9'],[9,'m9']], [[0,'sus2'],[7,'add9']] ],
+  jazz:    [ [[2,'m9'],[7,'x13'],[0,'maj9']], [[0,'maj9'],[5,'m9']], [[0,'maj9'],[2,'m11'],[7,'x13']] ],
+  funk:    [ [[0,'m7']], [[0,'m7'],[5,'m7']] ],
+};
+// 和音が変わる間隔 (小節)。ジャズは細かく、スタブはほぼ動かない
+const CHORD_BARS={stab:16, sustain:8, jazz:4, funk:8};
+
+const circuit = () => SCENES[sceneIdx].group;
+
+let prog=PROGS.stab[0], progPos=0, chordDeg=0, chordQual='m9', chordAt=-999;
+
+function pickProg(){
+  const c=circuit();
+  prog=pick(PROGS[c]);
+  progPos=0;
+  setChord();
+}
+function setChord(){
+  const [deg,q]=prog[progPos%prog.length];
+  chordDeg=deg; chordQual=q;
+}
+// 和音の構成音を midi で返す。base は最低音のおおよその位置
+function chordNotes(base){
+  const iv=QUALITIES[chordQual]||QUALITIES.m9;
+  const root=base+keyPc+chordDeg;
+  return iv.map(i=>root+i);
+}
+// ルートを省いて3度と7度を中音域へ寄せた積み方 (D-9 のジャズ回路)
+function rootlessNotes(base){
+  const iv=(QUALITIES[chordQual]||QUALITIES.maj9).slice(1);
+  const root=base+keyPc+chordDeg;
+  return iv.map(i=>root+(i%12)+((i>=12)?12:0)).sort((a,b)=>a-b);
 }
 
 /* ============================================================
@@ -844,6 +954,93 @@ function bassNote(time,midi,durSec,vel,accent){
 function bassCutoffBase(){
   const yy=current.yy, w=current.weight;
   return (170+yy*680)*(1.25-w*.5);
+}
+
+/* ---- 持続回路の発音 (D-9) ----
+   4層を持ち、下2層は和音が変わるたびに組み直す持続音、
+   上2層はアルペジオと高域リフで、打点ごとに鳴らす */
+let padVoices=[];
+function padRebuild(time){
+  if(!padLayer.length) return;
+  const xf=1.4;   // 前の和音との重なり。切り替えの継ぎ目を出さない
+  for(const v of padVoices){
+    v.g.gain.cancelScheduledValues(time);
+    v.g.gain.setValueAtTime(v.g.gain.value,time);
+    v.g.gain.linearRampToValueAtTime(.0001,time+xf);
+    for(const o of v.osc) try{ o.stop(time+xf+.05); }catch(e){}
+    disposeAt(v.g,time+xf+.2);
+  }
+  padVoices=[];
+  const tones=chordNotes(48);
+  for(let layer=0;layer<2;layer++){
+    const g=ctx.createGain(); g.gain.value=.0001;
+    g.connect(padLayer[layer]);
+    const osc=[];
+    for(const n of tones){
+      const f=mtof(n+layer*12);
+      for(const det of [-6,6]){
+        const o=ctx.createOscillator();
+        o.type = layer===0 ? 'sawtooth' : 'triangle';
+        o.frequency.value=f; o.detune.value=det;
+        o.connect(g); o.start(time); osc.push(o);
+      }
+    }
+    g.gain.setValueAtTime(.0001,time);
+    g.gain.linearRampToValueAtTime(.8/tones.length,time+xf);
+    padVoices.push({g,osc});
+  }
+}
+
+// アルペジオと高域リフ。短い撥弦のような音
+function padPluck(time,midi,layerIdx,type,dec,vel){
+  const o=ctx.createOscillator(), g=ctx.createGain(), pn=ctx.createStereoPanner();
+  o.type=type; o.frequency.value=mtof(midi);
+  pn.pan.value=rand(-.5,.5);
+  decayTo(g.gain,time,vel*.16,dec,.004);
+  o.connect(g).connect(pn).connect(padLayer[layerIdx]);
+  o.start(time); o.stop(time+dec+.05);
+  disposeAt(o,time+dec+.1); disposeAt(g,time+dec+.1); disposeAt(pn,time+dec+.1);
+}
+
+/* ---- スタブ回路の発音 (D-9) ----
+   裏拍に短く刺す。原音は薄く、ディレイへ送る量が多い */
+function stabHit(time,vel){
+  const tones=chordNotes(52);
+  const g=ctx.createGain(), pn=ctx.createStereoPanner();
+  pn.pan.value=rand(-.35,.35);
+  decayTo(g.gain,time,vel*.18,.13,.004);
+  g.connect(pn).connect(stabBus);
+  for(const n of tones){
+    for(const det of [-5,5]){
+      const o=ctx.createOscillator();
+      o.type='sawtooth'; o.frequency.value=mtof(n); o.detune.value=det;
+      o.connect(g); o.start(time); o.stop(time+.2);
+      disposeAt(o,time+.25);
+    }
+  }
+  disposeAt(g,time+.3); disposeAt(pn,time+.3);
+}
+
+/* ---- ジャズ / ボッサ回路の発音 (D-9) ----
+   FM のエレピ。変調指数を落としながら鳴らすと鍵盤らしい減衰になる */
+function epNote(time,midi,vel,dec){
+  const car=ctx.createOscillator(), mod=ctx.createOscillator(),
+        md=ctx.createGain(), g=ctx.createGain(), pn=ctx.createStereoPanner();
+  const f=mtof(midi);
+  car.type='sine'; mod.type='sine';
+  car.frequency.value=f; mod.frequency.value=f*2;   // 2倍音の変調で鐘寄りの倍音を作る
+  md.gain.setValueAtTime(f*2.4,time);
+  md.gain.exponentialRampToValueAtTime(f*.15,time+Math.min(dec,.5));
+  mod.connect(md).connect(car.frequency);
+  decayTo(g.gain,time,vel*.22,dec,.006);
+  pn.pan.value=rand(-.4,.4);
+  car.connect(g).connect(pn).connect(epBus);
+  car.start(time); mod.start(time); car.stop(time+dec+.06); mod.stop(time+dec+.06);
+  for(const n of [car,mod,md,g,pn]) disposeAt(n,time+dec+.12);
+}
+function epChord(time,vel){
+  const notes=rootlessNotes(60);
+  notes.forEach((n,i)=>epNote(time+i*.008,n,vel*(i===0?1:.8),.9));
 }
 
 /* ============================================================
@@ -1053,6 +1250,38 @@ function apply(){
     build.bassSends.dly.gain.setTargetAtTime(.05+c.space*.22+(dubbing?.2:0),tm,T);
     build.bassSends.rev.gain.setTargetAtTime(.04+c.space*.14,tm,T);
   }
+
+  // ハーモニー3回路。鳴らすのは基本的にどれかひとつ (D-8)
+  if(padBus){
+    const cir=circuit(), L=padLayers();
+    padBus.gain.setTargetAtTime((cir==='sustain'?.85:cir==='funk'?.4:0)*(.5+c.density*.5),tm,T*3);
+    for(let i=0;i<4;i++){
+      // 上の層ほど遅れて出る。剥がすときは速く落とす
+      const on = i<L;
+      padLayer[i].gain.setTargetAtTime(on?(i<2?1:.7):0, tm, on?T*4:T);
+    }
+    padFilter.frequency.setTargetAtTime(700+c.yy*4200+(phrase==='build'?2200:0),tm,T*3);
+    stabBus.gain.setTargetAtTime(cir==='stab'?(phrase==='break'?.2:1):0,tm,T*2);
+    stabFilter.frequency.setTargetAtTime(1200+c.yy*2600,tm,T*2);
+    epBus.gain.setTargetAtTime((cir==='jazz'||epGuest)?.55:0,tm,T*2);
+    build.harmSends.stab.dly.gain.setTargetAtTime(.5+c.space*.6,tm,T);
+    build.harmSends.pad.rev.gain.setTargetAtTime(.15+c.space*.4,tm,T);
+  }
+}
+
+// 持続回路の層の数。build で1層ずつ積み上がり、drop で天井に達してから剥がれる (D-9)
+function padLayers(){
+  const c=circuit();
+  if(c!=='sustain' && c!=='funk') return 0;
+  if(phrase==='break') return 0;
+  if(c==='funk') return 1;                     // funk では薄く敷くだけ (D-3)
+  const u=clamp((barCount-phraseStartBar)/PHRASE_BARS);
+  switch(phrase){
+    case 'build':  return 1+Math.floor(u*3.99);
+    case 'drop':   return 4;
+    case 'dubout': return 1;
+    default:       return 2;
+  }
 }
 
 // フレーズ型ごとのドラムの開き具合。build は16小節かけて開いていく (D-9 のレイヤー累積に対応)
@@ -1102,6 +1331,8 @@ function enterScene(idx,{manual=false}={}){
   sceneIdx=idx;
   moveKey();          // キーはシーンごとに五度圏で近い調へ移る (D-9)
   reseedPattern();    // 並びも引き直す。前のシーンの模様を持ち越さない
+  pickProg();         // 回路が変わるので和音の進行も選び直す
+  chordAt=-999;       // 次の小節で必ず和音を組み直す
   sceneStartBar=barCount;
   sceneBars=sceneLengthBars();
   recent.push(idx); if(recent.length>3) recent.shift();
@@ -1111,6 +1342,7 @@ function enterScene(idx,{manual=false}={}){
   sceneEdited=false;
   updateScene();
   highlightScene();
+  showProgress();   // 調と和音の表示も同時に追随させる。次の小節まで古い値を出さない
 }
 
 // 陰陽値から波の位相を逆に引く。いまが上り坂なら上り側、下り坂なら下り側を返す
@@ -1141,6 +1373,8 @@ function nextPhrase(){
   if(prev==='break' && p==='break') p='drop';
   phrase=p; phraseStartBar=barCount;
   reseedPattern();
+  // ジャズ / ボッサ回路は主役シーンだけでなく、他のシーンへも短く差し込む (D-9)
+  epGuest = circuit()!=='jazz' && phrase!=='break' && Math.random()<.18;
   showProgress();
 }
 
@@ -1172,7 +1406,10 @@ function maybeEvent(bar,time){
    ハットがベタになるかのどちらかに落ちるため。
    各トラックは16個の強さ (0 なら鳴らさない) を持つ。
    ============================================================ */
-const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[],bass:[]};
+const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[],bass:[],
+           stab:[],ep:[],arp:[],riff:[]};
+// ジャズ回路を他のシーンへ短く差し込んでいる間だけ立つ (D-9)
+let epGuest=false;
 let hatRot=0, percPer=[3,5], percOff=[0,0], kickVariant=null;
 
 /* 並びは毎小節引き直すが、種が同じなら同じ並びが出る。
@@ -1345,6 +1582,26 @@ function regenerate(bar){
 
   // --- ベース
   seq.bass=bassBar(bar,R,k);
+
+  // --- ハーモニー。鳴らす回路はシーンが決める (D-8)
+  const cir=circuit();
+  const stab=new Array(16).fill(0), ep=new Array(16).fill(0),
+        arp=new Array(16).fill(0), riff=new Array(16).fill(0);
+  if(cir==='stab' && !quiet){
+    // 裏拍に短く刺す。位置は種ごとに引き直す
+    for(const i of [2,6,10,14]) if(R()<.62) stab[i]=.7+R()*.3;
+    if(R()<.3) stab[7]=.5;
+  }
+  if((cir==='jazz'||epGuest) && !quiet){
+    const pr = cir==='jazz' ? .45 : .22;
+    for(const i of [0,3,6,10,11,14]) if(R()<pr) ep[i]=.6+R()*.4;
+  }
+  // 持続回路の上2層。実際に出るかは padLayers() が決める
+  for(let i=0;i<16;i++){
+    if(i%2===0 && R()<.85) arp[i]=.5+R()*.3;
+    if((i===0||i===3||i===6||i===11) && R()<.55) riff[i]=.5+R()*.4;
+  }
+  seq.stab=stab; seq.ep=ep; seq.arp=arp; seq.riff=riff;
 }
 
 /* ============================================================
@@ -1412,7 +1669,7 @@ function fireEvent(id,bar,time){
    小節と16分ステップを ctx.currentTime 基準で進める。
    setTimeout はバックグラウンドで絞られるが、音声時計は絞られない。
    ============================================================ */
-let stepIdx=0, barCount=0, nextStepTime=0, uiStep=-1;
+let stepIdx=0, barCount=0, nextStepTime=0, uiStep=-1, arpPos=0;
 const uiSteps=[];   // 表示の予定。遅れて届いた分は最新だけ描く
 
 function bpmNow(){
@@ -1445,6 +1702,20 @@ function playStep(i,time){
   if(k.cowbell && i===6 && Math.random()<.22) cb(time,.7);
   if(i===0 && phrase==='drop') cy(time,.8);   // 戻しの頭にシンバル
 
+  // --- ハーモニー
+  if(seq.stab[i]) stabHit(time,seq.stab[i]);
+  if(seq.ep[i])   epChord(time,seq.ep[i]);
+  const L=padLayers();
+  if(L>=3 && seq.arp[i]){
+    // アルペジオは和音の構成音を順に上る
+    const tones=chordNotes(60);
+    padPluck(time,tones[arpPos++%tones.length],2,'sawtooth',.22,seq.arp[i]);
+  }
+  if(L>=4 && seq.riff[i]){
+    const tones=chordNotes(72);
+    padPluck(time,tones[(i*3)%tones.length],3,'square',.16,seq.riff[i]*.8);
+  }
+
   // グリッチ: その小節の終盤だけ32分で刻み直す (D-3 の C 要素)
   if(barCount===glitchBar && i>=12){
     perc(time+sw*.5,.55,rand(-.6,.6),rand(.5,1.6));
@@ -1472,6 +1743,13 @@ function onBar(bar,time){
   if(bar-sceneStartBar>=sceneBars && bar===phraseStartBar){
     newWavePeriod();
     enterScene(chooseScene());
+  }
+  // 和音を進める。間隔は回路ごとに違い、スタブはほとんど動かない (D-9)
+  if(bar-chordAt>=CHORD_BARS[circuit()]){
+    // シーンに入った直後は進行の1つ目から始める。そこで進めると頭を飛ばしてしまう
+    if(chordAt>-900) progPos++;
+    setChord(); chordAt=bar;
+    padRebuild(time);
   }
   regenerate(bar);
   if(bar>0 && bar%4===0) maybeEvent(bar,time);   // 開始直後の1小節目にいきなり仕掛けを出さない
@@ -1642,6 +1920,7 @@ const pBarPos=document.getElementById('pbarpos');
 const pEvent=document.getElementById('pevent');
 const pWave=document.getElementById('pwave');
 const pKey=document.getElementById('pkey');
+const pChord=document.getElementById('pchord');
 function showProgress(){
   pPhrase.textContent=t(`phrase.${phrase}`);
   const inPhrase=barCount-phraseStartBar+1;
@@ -1652,6 +1931,8 @@ function showProgress(){
   const yy=waveYY(wavePos);
   pWave.textContent=`${yy.toFixed(2)}  ${(wavePos*100).toFixed(0)}%  / ${Math.round(wavePeriod/60)}min`;
   pKey.textContent=`${NOTE_NAMES[keyPc]} ${t('mode.'+SCENES[sceneIdx].group)}`;
+  const q=chordQual==='x13'?'13':chordQual;
+  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${epGuest?' + ep':''}]`;
 }
 
 /* ---- XY パッド ---- */
@@ -1894,7 +2175,7 @@ function stopAudio(){
   if(!running) return;
   running=false;
   setPowerUI(false);
-  muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1;
+  muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
   flushSteps();
   uiStep=-1; renderSteps();
   apply();
@@ -1966,6 +2247,7 @@ langBtn.addEventListener('click',()=>{
 wavePos=yyToWavePos(P.yy.def);
 newWavePeriod();
 enterScene(chooseScene());
+pickProg();
 sceneBars=sceneLengthBars();
 applyI18n();
 showProgress();
