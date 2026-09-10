@@ -172,3 +172,16 @@ test('遷移中はBPMが次のシーンへ向かって動く', async ({ page }) 
   await expect.poll(() => page.locator('#rbpm').textContent().then(v => parseInt(v, 10)),
     { timeout: 30000, intervals: [300] }).not.toBe(before);
 });
+
+test('D-11 の操作がひと通り揃っている', async ({ page }) => {
+  // 増減があったときに気づけるよう、操作の一覧をここで押さえておく
+  for (const id of ['s_volume', 's_weight', 's_drive', 's_space', 's_glitch',
+                    's_evolution', 's_mutate', 's_bpm', 's_glide']) {
+    await expect(page.locator('#' + id)).toBeVisible();
+  }
+  await expect(page.locator('#next')).toBeVisible();
+  await expect(page.locator('#plane')).toBeVisible();
+  // XY パッドの2軸は陰陽と密度 (D-11)
+  await expect(page.locator('[data-i18n="pad.yy"]').first()).toBeVisible();
+  await expect(page.locator('[data-i18n="pad.density"]').first()).toBeVisible();
+});

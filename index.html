@@ -1770,7 +1770,11 @@ function onBar(bar,time){
     enterScene(nxt);
     nextPhrase();       // ブレイク明けは新しいシーンのフレーズから始める
   }
-  if(bar-phraseStartBar>=PHRASE_BARS && pendingScene<0) nextPhrase();
+  // フレーズは16小節がひと区切り。「展開」を上げると、8小節の折り返しでも
+  // 切り替わることがあり、移り変わりが早くなる (D-11)
+  const inPhrase=bar-phraseStartBar;
+  const early = inPhrase>=8 && inPhrase%8===0 && Math.random()<current.evolution*.4;
+  if((inPhrase>=PHRASE_BARS || early) && pendingScene<0) nextPhrase();
   // 和音を進める。間隔は回路ごとに違い、スタブはほとんど動かない (D-9)
   if(bar-chordAt>=CHORD_BARS[circuit()]){
     // シーンに入った直後は進行の1つ目から始める。そこで進めると頭を飛ばしてしまう
