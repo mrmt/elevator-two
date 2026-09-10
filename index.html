@@ -877,7 +877,7 @@ let ladderReady=false;
 // ベースの経路を組む。Worklet が使えない環境では BiquadFilter 2段へ落とす
 function ensureBass(){
   if(bassReady) return;
-  bassSum=ctx.createGain(); bassSum.gain.value=.5;
+  bassSum=ctx.createGain(); bassSum.gain.value=.3;   // 鋸の差で作るぶん振幅が大きい
   bassPre=ctx.createGain(); bassPre.gain.value=1;
   bassShaper=ctx.createWaveShaper();
   {
@@ -932,16 +932,31 @@ const bassDrvParam = () => (bassLadder.parameters && bassLadder.parameters.get('
    単音なので包絡とフィルタは共有の段に持たせ、打点ごとには
    オシレータだけを立てる。
    ============================================================ */
+/* 矩形波を1本のオシレータでは作らず、鋸波とその遅延の差で作る。
+   遅延の長さがそのままパルス幅になるので、そこを揺らせば pulse width modulation になり、
+   デチューンだけでは出ない厚みとコーラス感が乗る (D-18) */
+function pulseVoice(t,freq,cents,dur){
+  const a=ctx.createOscillator(), b=ctx.createOscillator();
+  for(const o of [a,b]){ o.type='sawtooth'; o.frequency.value=freq; o.detune.value=cents; }
+  const d=ctx.createDelay(.05), inv=ctx.createGain();
+  inv.gain.value=-1;
+  const half=.5/freq;             // 半周期ぶん遅らせると duty 50% の矩形波になる
+  d.delayTime.value=half;
+  const lfo=ctx.createOscillator(), lg=ctx.createGain();
+  lfo.type='sine'; lfo.frequency.value=rand(.12,.45);
+  lg.gain.value=half*.5;          // duty はおおよそ 25〜75% の間で揺れる
+  lfo.connect(lg).connect(d.delayTime);
+  a.connect(bassSum);
+  b.connect(d).connect(inv).connect(bassSum);
+  for(const n of [a,b,lfo]){ n.start(t); n.stop(t+dur+.06); }
+  for(const n of [a,b,lfo,d,inv,lg]) disposeAt(n,t+dur+.12);
+}
+
 function bassNote(time,midi,durSec,vel,accent){
   if(!bassReady) return;
   const f=mtof(midi), t=time;
   const oscs=[];
-  for(const cents of [-7,0,7]){
-    const o=ctx.createOscillator();
-    o.type='square'; o.frequency.value=f; o.detune.value=cents;
-    o.connect(bassSum); o.start(t); o.stop(t+durSec+.06);
-    oscs.push(o);
-  }
+  for(const cents of [-7,0,7]) pulseVoice(t,f,cents,durSec);
   // サブ。ここが「厚み」の半分を担う
   const sub=ctx.createOscillator(), sg=ctx.createGain();
   sub.type='square'; sub.frequency.value=f/2;
@@ -960,11 +975,13 @@ function bassNote(time,midi,durSec,vel,accent){
   g.linearRampToValueAtTime(.0001,t+durSec);
 
   // フィルタ包絡。1音ごとにカットオフを叩いて戻す。アクセントで深さが変わる
+  // フィルタ包絡。頭を大きく開けてから短い時間で閉じる。
+  // 開き幅と閉じる速さがベースの粘りを決めるので、ここは長さより落差を優先する
   const cp=bassCutParam(), base=bassCutoffBase();
-  const peak=Math.min(base*(2.2+accent*4.5+current.drive*2.2), 9000);
+  const peak=Math.min(base*(4.5+accent*7+current.drive*3.5), 11000);
   cp.cancelScheduledValues(t);
   cp.setValueAtTime(peak,t);
-  cp.exponentialRampToValueAtTime(Math.max(60,base),t+Math.min(durSec*.9,.45));
+  cp.exponentialRampToValueAtTime(Math.max(60,base),t+Math.min(durSec*.45,.16));
 }
 
 // カットオフの基準値。陰は低く閉じ、陽は高く開く
@@ -1022,7 +1039,7 @@ function padPluck(time,midi,layerIdx,type,dec,vel){
 /* ---- スタブ回路の発音 (D-9) ----
    裏拍に短く刺す。原音は薄く、ディレイへ送る量が多い */
 function stabHit(time,vel){
-  const tones=chordNotes(52);
+  const tones=chordNotes(48);   // 基準は C (midi 48)。12の倍数でないと音名がずれる
   const g=ctx.createGain(), pn=ctx.createStereoPanner();
   pn.pan.value=rand(-.35,.35);
   decayTo(g.gain,time,vel*.18,.13,.004);
@@ -1498,14 +1515,24 @@ const BASS_GRIDS={
   funk:   [0,3,6,8,11,14],
   busy:   [0,2,3,6,8,10,11,14],
 };
-// 音階の何番目を引くか。主音と5度を厚くする
-const DEG_W=[5,1,1.6,1,3,1,1.2];
+/* 度数の重み。いま鳴っている和音の構成音から引く。
+   ルート音を鳴らすのが基本で、5度がそれに次ぐ (D-17)。
+   ときどき音階側の音へ逸れるが、それは例外として扱う */
+const CHORD_DEG_W=[6,1.4,3,1.2,1,1];
+const OFF_CHORD_P=.12;   // 和音から逸れる確率
 
-function bassBar(bar,R,kickPat){
-  const sc=SCENES[sceneIdx], yy=current.yy, d=current.density;
-  const sl=scale(), root=28+keyPc;
+function bassBar(bar,R,kickPat,scIdx,phr){
+  const sc=SCENES[scIdx], yy=current.yy, d=current.density;
+  const sl=scale();
   const out=new Array(16).fill(null);
-  if(phrase==='break') return out;   // ブレイクではベースも抜く
+  if(phr==='break') return out;   // ブレイクではベースも抜く
+
+  // 和音のルートに合わせる。基準は C (midi 24) から数える。
+  // ここを12の倍数にしておかないと、鳴る音名が調とずれる
+  let root=24+keyPc+(chordDeg%12);
+  while(root<31) root+=12;   // 低すぎると芯が消えるので、音域は 31〜42 に収める
+  while(root>42) root-=12;
+  const iv=QUALITIES[chordQual]||QUALITIES.m9;
 
   const grid = sc.group==='funk' ? (R()<.5?BASS_GRIDS.funk:BASS_GRIDS.busy)
              : yy<.32 ? BASS_GRIDS.slow
@@ -1518,13 +1545,21 @@ function bassBar(bar,R,kickPat){
   for(const i of grid){ if(i===0 || R()<busy) hits.push(i); }
   if(!hits.length) hits.push(0);
 
-  const sumW=DEG_W.reduce((a,b)=>a+b,0);
+  const sumW=iv.reduce((a,_,k)=>a+(CHORD_DEG_W[k]||1),0);
   for(let n=0;n<hits.length;n++){
     const i=hits[n];
     let deg=0;
     if(i!==0){
-      let r=R()*sumW;
-      for(let k=0;k<sl.length;k++){ r-=DEG_W[k%DEG_W.length]; if(r<=0){ deg=sl[k]; break; } }
+      if(R()<OFF_CHORD_P){
+        // 和音から逸れる。音階の中から選ぶので、外れても調からは外れない
+        deg=sl[Math.floor(R()*sl.length)];
+      }else{
+        let r=R()*sumW;
+        for(let k=0;k<iv.length;k++){
+          r-=(CHORD_DEG_W[k]||1);
+          if(r<=0){ deg=iv[k]%12; break; }   // 9th などは1オクターブ下げて低音域に置く
+        }
+      }
     }
     const oct = (yy>.6 && R()<.22) ? 12 : 0;
     const next = n+1<hits.length ? hits[n+1] : 16;

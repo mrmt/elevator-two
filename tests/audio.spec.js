@@ -111,3 +111,49 @@ test('重さを上げると低域が増える', async ({ page }) => {
   const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
   expect(mean(heavy)).toBeGreaterThan(mean(light) * 1.02);
 });
+
+test('ベースが和音のルート音を基本にする', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-17。ベースの矩形波は鋸波2本の差で作られるので、低い sawtooth を数えれば
+  // どの音を鳴らしているかが分かる
+  await page.addInitScript(() => {
+    window.__bass = [];
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const start = o.start.bind(o);
+      o.start = function (when) {
+        if (o.type === 'sawtooth' && o.frequency.value < 120) window.__bass.push(o.frequency.value);
+        return start(when);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html');
+  // 曙 (daybreak) は和音が8小節ごとに動くシーン。観測の間は同じ和音が続く
+  await page.locator('.scenebtn').nth(10).click();
+  await page.locator('#play').click();
+  await page.waitForTimeout(1200);
+
+  const chord = (await page.locator('#pchord').textContent()).trim();
+  const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const rootPc = NAMES.indexOf(chord.match(/^([A-G]#?)/)[1]);
+  expect(rootPc).toBeGreaterThanOrEqual(0);
+
+  await page.evaluate(() => { window.__bass.length = 0; });
+  await page.waitForTimeout(7000);
+  const freqs = await page.evaluate(() => window.__bass);
+  expect(freqs.length).toBeGreaterThan(20);
+
+  const counts = {};
+  for (const f of freqs) {
+    const midi = Math.round(69 + 12 * Math.log2(f / 440));
+    const pc = ((midi % 12) + 12) % 12;
+    counts[pc] = (counts[pc] || 0) + 1;
+  }
+  // ルート音が最も多く鳴っていること。逸脱は認めるが基本はルート (D-17)
+  const share = (counts[rootPc] || 0) / freqs.length;
+  expect(share).toBeGreaterThan(0.4);
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  expect(Number(top)).toBe(rootPc);
+});
