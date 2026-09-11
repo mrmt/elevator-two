@@ -1027,9 +1027,22 @@ function buildHarmony(){
 
   // ---- ジャズ / ボッサ回路 (彩り) ----
   epBus=ctx.createGain(); epBus.gain.value=.5;
-  epBus.connect(dry);
-  const eRev=ctx.createGain(); eRev.gain.value=.35; epBus.connect(eRev).connect(revSend);
-  const eDly=ctx.createGain(); eDly.gain.value=.2;  epBus.connect(eDly).connect(dlySend);
+  /* Juno のコーラス (D-40)。短いディレイを2本、少しずつ違う速さで揺らして
+     左右に振る。原音と足すと、あの厚みとうねりになる */
+  const epOut=ctx.createGain(); epOut.gain.value=1;
+  epBus.connect(epOut);                       // 原音
+  for(const [dt,rate,pan] of [[.0042,.62,-.8],[.0071,.93,.8]]){
+    const dl=ctx.createDelay(.05); dl.delayTime.value=dt;
+    const lfo=ctx.createOscillator(), dep=ctx.createGain();
+    lfo.type='sine'; lfo.frequency.value=rate; dep.gain.value=dt*.45;
+    lfo.connect(dep).connect(dl.delayTime); lfo.start();
+    const pn=ctx.createStereoPanner(); pn.pan.value=pan;
+    const g=ctx.createGain(); g.gain.value=.6;
+    epBus.connect(dl); dl.connect(pn).connect(g).connect(epOut);
+  }
+  epOut.connect(dry);
+  const eRev=ctx.createGain(); eRev.gain.value=.35; epOut.connect(eRev).connect(revSend);
+  const eDly=ctx.createGain(); eDly.gain.value=.2;  epOut.connect(eDly).connect(dlySend);
 
   /* ---- インダストリアル・ノイズの発音 (D-38) ----
    1音ごとに音色を不規則に振る。素材・再生速度・フィルタの種類と帯域・
@@ -1582,49 +1595,61 @@ function stabHit(time,vel){
 
 /* ---- ジャズ / ボッサ回路の発音 (D-9) ----
    FM のエレピ。変調指数を落としながら鳴らすと鍵盤らしい減衰になる */
+/* Juno-106 のような、みずみずしい矩形波の音 (D-40)。
+   パルス波 (鋸とその遅延の差) にパルス幅変調を掛け、鋸と1オクターブ下の
+   サブ矩形を足す。2段のローパスを包絡で開いて閉じる。
+   後段のコーラスで厚みを作るので、ここでは素のまま出す */
 function epNote(time,midi,vel,dec){
   const f=mtof(midi);
-  const car=ctx.createOscillator(), g=ctx.createGain(), pn=ctx.createStereoPanner();
-  car.type='sine'; car.frequency.value=f;
+  const sum=ctx.createGain(); sum.gain.value=.42;
+  const pn=ctx.createStereoPanner(); pn.pan.value=rand(-.15,.15);
+  const nodes=[sum,pn];
 
-  // 金属質の倍音は非整数比の変調から作る。頭で強くかけ、すぐ落とす
-  const m1=ctx.createOscillator(), g1=ctx.createGain();
-  m1.type='sine'; m1.frequency.value=f*3.47;
-  g1.gain.setValueAtTime(f*(3.6+vel*2.4),time);
-  g1.gain.exponentialRampToValueAtTime(f*.22,time+.10);
-  m1.connect(g1).connect(car.frequency);
+  // DCO: パルス波。遅延の長さがパルス幅になり、そこを LFO で揺らす
+  const a=ctx.createOscillator(), b=ctx.createOscillator();
+  for(const o of [a,b]){ o.type='sawtooth'; o.frequency.value=f; }
+  const d=ctx.createDelay(.05), inv=ctx.createGain(); inv.gain.value=-1;
+  const half=.5/f;
+  d.delayTime.value=half*rand(.62,1);
+  const plfo=ctx.createOscillator(), pg=ctx.createGain();
+  plfo.type='sine'; plfo.frequency.value=rand(.25,.8); pg.gain.value=half*.38;
+  plfo.connect(pg).connect(d.delayTime);
+  a.connect(sum); b.connect(d).connect(inv).connect(sum);
+  nodes.push(a,b,d,inv,plfo,pg);
 
-  // 胴。1倍で緩く支える
-  const m2=ctx.createOscillator(), g2=ctx.createGain();
-  m2.type='sine'; m2.frequency.value=f;
-  g2.gain.setValueAtTime(f*1.5,time);
-  g2.gain.exponentialRampToValueAtTime(f*.10,time+dec*.6);
-  m2.connect(g2).connect(car.frequency);
+  // 鋸を薄く重ねて芯を出す
+  const saw=ctx.createOscillator(), sawG=ctx.createGain();
+  saw.type='sawtooth'; saw.frequency.value=f; saw.detune.value=rand(-6,6);
+  sawG.gain.value=.34; saw.connect(sawG).connect(sum);
+  nodes.push(saw,sawG);
 
-  decayTo(g.gain,time,vel*.20,dec,.004);
-  pn.pan.value=rand(-.4,.4);
-  car.connect(g).connect(pn).connect(epBus);
-  for(const n of [car,m1,m2]){ n.start(time); n.stop(time+dec+.06); }
-
-  // 1オクターブ下の矩形波を薄く重ねて厚みを出す (D-27)
-  const sub=ctx.createOscillator(), sf=ctx.createBiquadFilter(), sg=ctx.createGain();
+  // サブ。1オクターブ下の矩形 (D-27)
+  const sub=ctx.createOscillator(), subG=ctx.createGain();
   sub.type='square'; sub.frequency.value=f/2;
-  sf.type='lowpass'; sf.frequency.value=Math.min(f*2.2,2400); sf.Q.value=.7;
-  decayTo(sg.gain,time,vel*.10,dec*.7,.006);
-  sub.connect(sf).connect(sg).connect(pn);
-  sub.start(time); sub.stop(time+dec+.06);
-  for(const n of [sub,sf,sg]) disposeAt(n,time+dec+.14);
+  subG.gain.value=.40; sub.connect(subG).connect(sum);
+  nodes.push(sub,subG);
 
-  // トーンバーを叩く音。矩形波6基の倍音列をごく短く重ねると硬さが出る
-  const tine=ctx.createBufferSource(), tb=ctx.createBiquadFilter(), tg=ctx.createGain();
-  tine.buffer=metalBuf; tine.loop=true;
-  tine.playbackRate.value=Math.max(.25,f/220);
-  tb.type='bandpass'; tb.frequency.value=Math.min(f*7,8000); tb.Q.value=2.6;
-  decayTo(tg.gain,time,vel*.16,.055,.002);
-  tine.connect(tb).connect(tg).connect(pn);
-  tine.start(time); tine.stop(time+.12);
+  // VCF: 24dB 相当に2段。頭で開いて落ち着く
+  const f1=ctx.createBiquadFilter(), f2=ctx.createBiquadFilter();
+  f1.type='lowpass'; f2.type='lowpass'; f1.Q.value=3.4; f2.Q.value=.7;
+  const base=Math.min(f*4+700,5200), peak=Math.min(base*2.6,9000);
+  for(const fl of [f1,f2]){
+    fl.frequency.setValueAtTime(peak,time);
+    fl.frequency.exponentialRampToValueAtTime(base,time+Math.min(dec*.6,.5));
+  }
+  nodes.push(f1,f2);
 
-  for(const n of [car,m1,m2,g1,g2,g,pn,tine,tb,tg]) disposeAt(n,time+dec+.14);
+  // VCA: 立ち上がりは速く、少し落ちてから伸びる
+  const amp=ctx.createGain();
+  amp.gain.setValueAtTime(.0001,time);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.22,.0002),time+.014);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.11,.0002),time+Math.min(dec*.5,.4));
+  amp.gain.exponentialRampToValueAtTime(.0001,time+dec);
+  nodes.push(amp);
+
+  sum.connect(f1).connect(f2).connect(amp).connect(pn).connect(epBus);
+  for(const o of [a,b,saw,sub,plfo]){ o.start(time); o.stop(time+dec+.06); }
+  for(const n of nodes) disposeAt(n,time+dec+.14);
 }
 
 function epChord(time,vel){
