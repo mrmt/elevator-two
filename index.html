@@ -1418,17 +1418,32 @@ function bassNote(time,midi,durSec,vel,accent){
   // 開き幅と閉じる速さがベースの粘りを決めるので、ここは長さより落差を優先する。
   // 音程が動かない小節では、開き幅と落ち着き先を1音ごとに振って単調さを補う (D-42)
   const cp=bassCutParam();
-  const base=bassCutoffBase()*(bassWobble?rand(.55,1.9):1);
-  const mul=bassWobble ? (rand(2.2,7)+accent*3+current.drive*2)
+  const base=bassCutoffBase()*(bassWobble?rand(.3,3.4):1);
+  const mul=bassWobble ? (rand(3,15)+accent*4+current.drive*3)
                       : (4.5+accent*7+current.drive*3.5);
-  const peak=Math.min(base*mul, 11000);
+  const peak=Math.min(base*mul, 15000);
+  const settle=Math.min(durSec*.45,.16);
   cp.cancelScheduledValues(t);
   cp.setValueAtTime(peak,t);
-  cp.exponentialRampToValueAtTime(Math.max(60,base),t+Math.min(durSec*.45,.16));
-  // レゾナンスも一緒に振る。apply() 側は揺らしている間これに触らない
+  cp.exponentialRampToValueAtTime(Math.max(60,base),t+settle);
   if(bassWobble){
+    // 落ち着いたあとも動かし続ける。1音の中で二度三度と行き先を変える (D-42)
+    let at=t+settle, f=base;
+    while(at < t+durSec*.95){
+      const span=Math.min(rand(.05,.22), t+durSec-at);
+      if(span<=.01) break;
+      f=clamp(base*rand(.25,4.2), 70, 15000);
+      cp.exponentialRampToValueAtTime(f, at+span);
+      at+=span;
+    }
+    // レゾナンスも一緒に振る。発振寸前まで上げる音も混ぜる。
+    // apply() 側は揺らしている間これに触らない
     const rp=bassResParam();
-    if(rp){ rp.cancelScheduledValues(t); rp.setValueAtTime(clamp(.9+Math.random()*2.9,0,4.2),t); }
+    if(rp){
+      rp.cancelScheduledValues(t);
+      rp.setValueAtTime(clamp(1.8+Math.random()*2.35,0,4.2),t);
+      if(durSec>.25) rp.linearRampToValueAtTime(clamp(1.5+Math.random()*2.6,0,4.2),t+durSec*.8);
+    }
   }
 }
 
@@ -1641,25 +1656,26 @@ function epNote(time,midi,vel,dec){
   nodes.push(sub,subG);
 
   // 立ち下がりの長さ。短く切って歯切れを出す (D-41)
-  const fall=Math.min(dec*.32,.22);
+  const fall=Math.min(dec*.18,.11);
 
   // VCF: 24dB 相当に2段。VCA と同じ速さで閉じる
   const f1=ctx.createBiquadFilter(), f2=ctx.createBiquadFilter();
   f1.type='lowpass'; f2.type='lowpass'; f1.Q.value=3.4; f2.Q.value=.7;
-  const base=Math.min(f*2.4+380,3600), peak=Math.min(base*3.2,9500);
+  const base=Math.min(f*1.9+260,3000), peak=Math.min(base*3.6,9500);
   for(const fl of [f1,f2]){
     fl.frequency.setValueAtTime(peak,time);
     fl.frequency.exponentialRampToValueAtTime(base,time+fall);
-    fl.frequency.exponentialRampToValueAtTime(Math.max(base*.45,220),time+fall+.05);
+    // 音が消えるのと同時に閉じきる。ここが開いたままだと歯切れが出ない
+    fl.frequency.exponentialRampToValueAtTime(Math.max(base*.28,180),time+fall+.02);
   }
   nodes.push(f1,f2);
 
   // VCA: 立ち上がりは速く、短いディケイで落として最後は直線で切る
   const amp=ctx.createGain();
   amp.gain.setValueAtTime(.0001,time);
-  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.24,.0002),time+.008);
-  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.05,.0002),time+fall);
-  amp.gain.linearRampToValueAtTime(0,time+fall+.05);   // 立ち下がりを鋭く
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.26,.0002),time+.006);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.02,.0002),time+fall);
+  amp.gain.linearRampToValueAtTime(0,time+fall+.02);   // 立ち下がりを鋭く
   nodes.push(amp);
 
   sum.connect(f1).connect(f2).connect(amp).connect(pn).connect(epBus);
@@ -1670,7 +1686,7 @@ function epNote(time,midi,vel,dec){
 function epChord(time,vel){
   const notes=rootlessNotes(60);
   // 伸ばさず歯切れよく切る (D-41)
-  notes.forEach((n,i)=>epNote(time+i*.008,n,vel*(i===0?1:.8),.46));
+  notes.forEach((n,i)=>epNote(time+i*.006,n,vel*(i===0?1:.8),.30));
 }
 
 /* ============================================================
@@ -1894,7 +1910,8 @@ function apply(){
     bassComp.threshold.setTargetAtTime(-18-c.drive*12,tm,T);
     // うねりの速さと深さ。密度が上がるほど速く、陽へ寄るほど深く振れる
     bassLfo.osc.frequency.setTargetAtTime(.035+c.density*.14,tm,T);
-    bassLfo.gain.gain.setTargetAtTime(bassCutoffBase()*(.25+c.yy*.5),tm,T);
+    bassLfo.gain.gain.setTargetAtTime(
+      bassCutoffBase()*(bassWobble?(.9+c.yy*1.3):(.25+c.yy*.5)),tm,T);
     build.bassSends.dly.gain.setTargetAtTime(.05+c.space*.22+(dubbing?.2:0),tm,T);
     build.bassSends.rev.gain.setTargetAtTime(.04+c.space*.14,tm,T);
   }
