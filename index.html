@@ -573,7 +573,7 @@ ja:{
   'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
   'circuit.stab':'スタブ','circuit.jazz':'エレピ','circuit.sustain':'持続','circuit.funk':'持続(薄)',
   'mode2.break':'ブレイク','mode2.morph':'連続変形','mode2.mix':'ミックス',
-  'mode3.chop':'連打','noise.label':'ノイズ',
+  'mode3.chop':'連打','noise.label':'ノイズ','bass.label':'ベース','bass.phaser':'+フェーザー',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -634,7 +634,7 @@ en:{
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
   'mode2.break':'break','mode2.morph':'morph','mode2.mix':'mix',
-  'mode3.chop':'chop','noise.label':'noise',
+  'mode3.chop':'chop','noise.label':'noise','bass.label':'bass','bass.phaser':'+phaser',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -781,6 +781,7 @@ let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     drumBusB=null, drumFilterB=null, drumMixB=null,
     bassBus=null, bassSum=null, bassPre=null, bassShaper=null, bassLadder=null,
     bassAmp=null, bassComp=null, bassLfo=null, bassReady=false,
+    bassPhWet=null, bassPhLfo=null,
     padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
     leadBus=null, leadFilt=null, leadDly=null, leadTaps=null,
     chopBus=null, chopDly=null, chopTaps=null,
@@ -1309,6 +1310,24 @@ function ensureBass(){
   bassLadder.connect(bassAmp);
   bassAmp.connect(bassComp).connect(bassBus);
   bassBus.connect(dry);
+  /* ベースが疎な小節でだけ掛けるフェーザー (D-39)。
+     全域通過4段を LFO で揺らし、原音と足す。普段は wet が 0 */
+  {
+    let node=bassBus;
+    const stages=[];
+    for(let i=0;i<4;i++){
+      const ap=ctx.createBiquadFilter();
+      ap.type='allpass'; ap.frequency.value=220*Math.pow(2.2,i); ap.Q.value=.6;
+      node.connect(ap); node=ap; stages.push(ap);
+    }
+    bassPhWet=ctx.createGain(); bassPhWet.gain.value=0;
+    node.connect(bassPhWet).connect(dry);
+    const lo=ctx.createOscillator(), dep=ctx.createGain();
+    lo.type='sine'; lo.frequency.value=.15; dep.gain.value=520;
+    for(const ap of stages) dep.connect(ap.frequency);
+    lo.connect(dep); lo.start();
+    bassPhLfo={osc:lo,depth:dep};
+  }
   const bRev=ctx.createGain(); bRev.gain.value=.08; bassBus.connect(bRev).connect(revSend);
   const bDly=ctx.createGain(); bDly.gain.value=.10; bassBus.connect(bDly).connect(dlySend);
   build.bassSends={rev:bRev,dly:bDly};
@@ -1441,6 +1460,9 @@ function rollNoise(group){
 }
 
 let bassTight=false;
+// いまの小節のベースの音符数。5未満ならフェーザーを掛ける (D-39)
+let bassNotes=0;
+const bassSparse = () => bassNotes>0 && bassNotes<5;
 // true なら、持続する和音の代わりに短い和音を連打する (D-34)
 let padChop=false;
 
@@ -1818,7 +1840,10 @@ function apply(){
   // ベース (D-10)。押し出しが飽和の入りとレゾナンスを、重さが量と音域を決める
   if(bassReady){
     bassPre.gain.setTargetAtTime(.6+c.drive*1.9,tm,T);
-    bassBus.gain.setTargetAtTime((phrase==='break'?.15:1)*(.55+c.weight*.6),tm,T);
+    // 疎な小節はフェーザーを掛け、そのぶん量を1割下げる (D-39)
+    const sparse=bassSparse();
+    bassBus.gain.setTargetAtTime((phrase==='break'?.15:1)*(.55+c.weight*.6)*(sparse?.9:1),tm,T);
+    bassPhWet.gain.setTargetAtTime(sparse?.55:0,tm,T*3);
     const res=bassResParam();
     if(res) res.setTargetAtTime(1.1+c.drive*1.5,tm,T);
     // Ladder 自身の入力も持ち上げる。各段の tanh が効きはじめ、倍音が増える
@@ -1846,7 +1871,7 @@ function apply(){
     }
     // 連打の量とディレイ。ディレイはテンポに同期させ、左右で16分3つと5つ
     chopBus.gain.setTargetAtTime(padChop?(.7*(.6+c.density*.5)):0,tm,T*2);
-    noiseBus.gain.setTargetAtTime(noiseOn?(.5+c.density*.4)*(phrase==='break'?.2:1):0,tm,T*2);
+    noiseBus.gain.setTargetAtTime(noiseOn?(.95+c.density*.6)*(phrase==='break'?.2:1):0,tm,T*2);
     build.noiseSends.dly.gain.setTargetAtTime(.1+c.space*.35,tm,T);
     chopDly.gain.setTargetAtTime(.45+c.space*.6,tm,T*2);
     chopTaps.l.d.delayTime.setTargetAtTime(sd*3,tm,1.2);
@@ -2350,6 +2375,8 @@ function regenerate(bar){
   if(Math.random()<current.mutate*.5) reseedPattern();
   const fillBar=isFillBar(bar);
   Object.assign(seq, buildBar(bar,sceneIdx,phrase,patSeed,fillBar));
+  // 疎な小節はフェーザーで補う (D-39)。その判断に使う
+  bassNotes = seq.bass.filter(Boolean).length;
   seq.fill=new Array(16).fill(null);
   // 音色はときどき差し替える。基本は鋸波で、たまに別の波形になる
   if(Math.random()<.25) leadType = Math.random()<.5 ? 'sawtooth' : pick(LEAD_TYPES);
@@ -2889,7 +2916,9 @@ function showProgress(){
   const mode = (circuit()==='sustain'||circuit()==='funk') && padChop ? ' '+t('mode3.chop') : '';
   // ノイズ層の周期も出す。ポリリズムがどう回っているかはここでしか分からない
   const nz = noiseOn ? '  ' + t('noise.label') + ' ' + noiseGens.map(g=>g.len).join('/') : '';
-  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${mode}${epGuest?' + ep':''}]${nz}`;
+  // ベースの音符数と、疎なときに掛かるフェーザー (D-39)
+  const bs = `  ${t('bass.label')} ${bassNotes}${bassSparse()?' '+t('bass.phaser'):''}`;
+  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${mode}${epGuest?' + ep':''}]${bs}${nz}`;
 }
 
 /* ---- XY パッド ---- */

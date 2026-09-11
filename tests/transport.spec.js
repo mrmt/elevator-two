@@ -355,3 +355,44 @@ test('ノイズの周期は小節に乗らない', async ({ page }) => {
   // 7割は左右それぞれ独立、3割は片側だけ
   expect(stereo).toBeGreaterThan(single);
 });
+
+test('ベースが疎な小節にはフェーザーが掛かる', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-39。潜行は8分より粗い格子なので、1小節あたり2音ほどにしかならない
+  await page.locator('.scenebtn').nth(0).click();
+  await page.locator('#play').click();
+
+  const read = async () => {
+    const m = (await page.locator('#pchord').textContent()).match(/ベース (\d+)( \+フェーザー)?/);
+    return m && { n: Number(m[1]), ph: !!m[2] };
+  };
+  await expect.poll(async () => (await read())?.n, { timeout: 15000 }).toBeGreaterThan(0);
+
+  // 5未満の小節では必ず掛かっている
+  for (let i = 0; i < 12; i++) {
+    const r = await read();
+    if (r && r.n > 0 && r.n < 5) expect(r.ph).toBe(true);
+    await page.waitForTimeout(600);
+  }
+});
+
+test('ベースが密な小節にはフェーザーが掛からない', async ({ page }) => {
+  test.setTimeout(90000);
+  // 疾走は16分の格子なので、5音以上になる小節が出る
+  await page.locator('.scenebtn').nth(12).click();
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+
+  const read = async () => {
+    const m = (await page.locator('#pchord').textContent()).match(/ベース (\d+)( \+フェーザー)?/);
+    return m && { n: Number(m[1]), ph: !!m[2] };
+  };
+  let dense = null;
+  for (let i = 0; i < 60 && !dense; i++) {
+    const r = await read();
+    if (r && r.n >= 5) dense = r;
+    await page.waitForTimeout(500);
+  }
+  expect(dense).not.toBeNull();
+  expect(dense.ph).toBe(false);
+});
