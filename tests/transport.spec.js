@@ -396,3 +396,11 @@ test('ベースが密な小節にはフェーザーが掛からない', async ({
   expect(dense).not.toBeNull();
   expect(dense.ph).toBe(false);
 });
+
+test('音程が動かない小節ではベースのフィルタが揺れる', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-42。ベースはもともとルートを踏み続ける設計なので、たいていの小節が該当する
+  await page.locator('.scenebtn').nth(0).click();   // 潜行
+  await page.locator('#play').click();
+  await expect(page.locator('#pchord')).toContainText('+ゆらぎ', { timeout: 15000 });
+});

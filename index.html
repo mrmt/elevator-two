@@ -573,7 +573,7 @@ ja:{
   'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
   'circuit.stab':'スタブ','circuit.jazz':'エレピ','circuit.sustain':'持続','circuit.funk':'持続(薄)',
   'mode2.break':'ブレイク','mode2.morph':'連続変形','mode2.mix':'ミックス',
-  'mode3.chop':'連打','noise.label':'ノイズ','bass.label':'ベース','bass.phaser':'+フェーザー',
+  'mode3.chop':'連打','noise.label':'ノイズ','bass.label':'ベース','bass.phaser':'+フェーザー','bass.wobble':'+ゆらぎ',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -634,7 +634,7 @@ en:{
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
   'mode2.break':'break','mode2.morph':'morph','mode2.mix':'mix',
-  'mode3.chop':'chop','noise.label':'noise','bass.label':'bass','bass.phaser':'+phaser',
+  'mode3.chop':'chop','noise.label':'noise','bass.label':'bass','bass.phaser':'+phaser','bass.wobble':'+wobble',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -1026,7 +1026,7 @@ function buildHarmony(){
   const sDly=ctx.createGain(); sDly.gain.value=.9;  stabFilter.connect(sDly).connect(dlySend);
 
   // ---- ジャズ / ボッサ回路 (彩り) ----
-  epBus=ctx.createGain(); epBus.gain.value=.5;
+  epBus=ctx.createGain(); epBus.gain.value=.72;   // 音が短いぶん量で釣り合いを取る (D-41)
   /* Juno のコーラス (D-40)。短いディレイを2本、少しずつ違う速さで揺らして
      左右に振る。原音と足すと、あの厚みとうねりになる */
   const epOut=ctx.createGain(); epOut.gain.value=1;
@@ -1415,12 +1415,21 @@ function bassNote(time,midi,durSec,vel,accent){
 
   // フィルタ包絡。1音ごとにカットオフを叩いて戻す。アクセントで深さが変わる
   // フィルタ包絡。頭を大きく開けてから短い時間で閉じる。
-  // 開き幅と閉じる速さがベースの粘りを決めるので、ここは長さより落差を優先する
-  const cp=bassCutParam(), base=bassCutoffBase();
-  const peak=Math.min(base*(4.5+accent*7+current.drive*3.5), 11000);
+  // 開き幅と閉じる速さがベースの粘りを決めるので、ここは長さより落差を優先する。
+  // 音程が動かない小節では、開き幅と落ち着き先を1音ごとに振って単調さを補う (D-42)
+  const cp=bassCutParam();
+  const base=bassCutoffBase()*(bassWobble?rand(.55,1.9):1);
+  const mul=bassWobble ? (rand(2.2,7)+accent*3+current.drive*2)
+                      : (4.5+accent*7+current.drive*3.5);
+  const peak=Math.min(base*mul, 11000);
   cp.cancelScheduledValues(t);
   cp.setValueAtTime(peak,t);
   cp.exponentialRampToValueAtTime(Math.max(60,base),t+Math.min(durSec*.45,.16));
+  // レゾナンスも一緒に振る。apply() 側は揺らしている間これに触らない
+  if(bassWobble){
+    const rp=bassResParam();
+    if(rp){ rp.cancelScheduledValues(t); rp.setValueAtTime(clamp(.9+Math.random()*2.9,0,4.2),t); }
+  }
 }
 
 // シーケンスのフィルタの基準値。陽ほど開き、build の局面ではさらに開く
@@ -1476,6 +1485,8 @@ let bassTight=false;
 // いまの小節のベースの音符数。5未満ならフェーザーを掛ける (D-39)
 let bassNotes=0;
 const bassSparse = () => bassNotes>0 && bassNotes<5;
+// 音程が動かない小節。1音ごとにフィルタとレゾナンスを振る (D-42)
+let bassWobble=false;
 // true なら、持続する和音の代わりに短い和音を連打する (D-34)
 let padChop=false;
 
@@ -1626,25 +1637,29 @@ function epNote(time,midi,vel,dec){
   // サブ。1オクターブ下の矩形 (D-27)
   const sub=ctx.createOscillator(), subG=ctx.createGain();
   sub.type='square'; sub.frequency.value=f/2;
-  subG.gain.value=.40; sub.connect(subG).connect(sum);
+  subG.gain.value=.58; sub.connect(subG).connect(sum);
   nodes.push(sub,subG);
 
-  // VCF: 24dB 相当に2段。頭で開いて落ち着く
+  // 立ち下がりの長さ。短く切って歯切れを出す (D-41)
+  const fall=Math.min(dec*.32,.22);
+
+  // VCF: 24dB 相当に2段。VCA と同じ速さで閉じる
   const f1=ctx.createBiquadFilter(), f2=ctx.createBiquadFilter();
   f1.type='lowpass'; f2.type='lowpass'; f1.Q.value=3.4; f2.Q.value=.7;
-  const base=Math.min(f*4+700,5200), peak=Math.min(base*2.6,9000);
+  const base=Math.min(f*2.4+380,3600), peak=Math.min(base*3.2,9500);
   for(const fl of [f1,f2]){
     fl.frequency.setValueAtTime(peak,time);
-    fl.frequency.exponentialRampToValueAtTime(base,time+Math.min(dec*.6,.5));
+    fl.frequency.exponentialRampToValueAtTime(base,time+fall);
+    fl.frequency.exponentialRampToValueAtTime(Math.max(base*.45,220),time+fall+.05);
   }
   nodes.push(f1,f2);
 
-  // VCA: 立ち上がりは速く、少し落ちてから伸びる
+  // VCA: 立ち上がりは速く、短いディケイで落として最後は直線で切る
   const amp=ctx.createGain();
   amp.gain.setValueAtTime(.0001,time);
-  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.22,.0002),time+.014);
-  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.11,.0002),time+Math.min(dec*.5,.4));
-  amp.gain.exponentialRampToValueAtTime(.0001,time+dec);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.24,.0002),time+.008);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.05,.0002),time+fall);
+  amp.gain.linearRampToValueAtTime(0,time+fall+.05);   // 立ち下がりを鋭く
   nodes.push(amp);
 
   sum.connect(f1).connect(f2).connect(amp).connect(pn).connect(epBus);
@@ -1654,7 +1669,8 @@ function epNote(time,midi,vel,dec){
 
 function epChord(time,vel){
   const notes=rootlessNotes(60);
-  notes.forEach((n,i)=>epNote(time+i*.008,n,vel*(i===0?1:.8),.9));
+  // 伸ばさず歯切れよく切る (D-41)
+  notes.forEach((n,i)=>epNote(time+i*.008,n,vel*(i===0?1:.8),.46));
 }
 
 /* ============================================================
@@ -1867,10 +1883,11 @@ function apply(){
     bassPre.gain.setTargetAtTime(.6+c.drive*1.9,tm,T);
     // 疎な小節はフェーザーを掛け、そのぶん量を1割下げる (D-39)
     const sparse=bassSparse();
-    bassBus.gain.setTargetAtTime((phrase==='break'?.15:1)*(.55+c.weight*.6)*(sparse?.9:1),tm,T);
+    bassBus.gain.setTargetAtTime((phrase==='break'?.15:1)*(.45+c.weight*.5)*(sparse?.9:1),tm,T);
     bassPhWet.gain.setTargetAtTime(sparse?.55:0,tm,T*3);
     const res=bassResParam();
-    if(res) res.setTargetAtTime(1.1+c.drive*1.5,tm,T);
+    // 揺らしている間は1音ごとに書くので、こちらからは触らない (D-42)
+    if(res && !bassWobble) res.setTargetAtTime(1.1+c.drive*1.5,tm,T);
     // Ladder 自身の入力も持ち上げる。各段の tanh が効きはじめ、倍音が増える
     const drv=bassDrvParam();
     if(drv) drv.setTargetAtTime(.9+c.drive*3.2,tm,T);
@@ -2402,6 +2419,8 @@ function regenerate(bar){
   Object.assign(seq, buildBar(bar,sceneIdx,phrase,patSeed,fillBar));
   // 疎な小節はフェーザーで補う (D-39)。その判断に使う
   bassNotes = seq.bass.filter(Boolean).length;
+  // 音程がほとんど動かない小節は、1音ごとにフィルタを揺らして単調さを補う (D-42)
+  bassWobble = new Set(seq.bass.filter(Boolean).map(b=>b.midi)).size<=2;
   seq.fill=new Array(16).fill(null);
   // 音色はときどき差し替える。基本は鋸波で、たまに別の波形になる
   if(Math.random()<.25) leadType = Math.random()<.5 ? 'sawtooth' : pick(LEAD_TYPES);
@@ -2942,7 +2961,9 @@ function showProgress(){
   // ノイズ層の周期も出す。ポリリズムがどう回っているかはここでしか分からない
   const nz = noiseOn ? '  ' + t('noise.label') + ' ' + noiseGens.map(g=>g.len).join('/') : '';
   // ベースの音符数と、疎なときに掛かるフェーザー (D-39)
-  const bs = `  ${t('bass.label')} ${bassNotes}${bassSparse()?' '+t('bass.phaser'):''}`;
+  const bs = `  ${t('bass.label')} ${bassNotes}`
+    + (bassSparse()?' '+t('bass.phaser'):'')
+    + (bassWobble?' '+t('bass.wobble'):'');
   pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${mode}${epGuest?' + ep':''}]${bs}${nz}`;
 }
 
