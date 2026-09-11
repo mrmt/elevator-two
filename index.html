@@ -3088,6 +3088,7 @@ const YT_CACHE_STORE='elevator-two:ytcache';
    という分担にしてある (D-35) */
 const YT_CACHE_TTL=30*24*60*60*1000;
 const YT_VERIFY_TTL=24*60*60*1000;
+const YT_FAIL_TTL=6*60*60*1000;   // 見つからなかったシーンを覚えておく時間
 
 const bgEl=document.getElementById('bg');
 const capEl=document.getElementById('vcap');
@@ -3154,6 +3155,21 @@ function ytQuery(sc){
   return [name, SCENE_QUERY[sc.id]||'', YT_COMMON].filter(Boolean).join(' ');
 }
 
+/* 検索の段取り (D-45)。上から順に試し、結果が出たところで止める。
+   語を絞ったまま諦めると、在庫の薄いシーンで背景が出ないままになる。
+   1回100単位なので、緩め方は4段までに留める */
+function ytLadder(sc){
+  const name=I18N.en[`scene.${sc.id}.name`];
+  const extra=(SCENE_QUERY[sc.id]||'').split(' ').filter(Boolean);
+  const full=[name,...extra,YT_COMMON].join(' ');
+  return [
+    {q:full, long:true},                                   // そのまま
+    {q:full, long:false},                                  // 長さの条件を外す
+    {q:[name,...extra.slice(0,2),YT_COMMON].join(' '), long:false},   // 語を半分に
+    {q:[name,YT_COMMON].join(' '), long:false},            // シーン名だけに
+  ];
+}
+
 function ytUrl(q,{long=true}={}){
   return 'https://www.googleapis.com/youtube/v3/search'
     +'?part=snippet&type=video&maxResults=12&safeSearch=moderate'
@@ -3209,13 +3225,18 @@ async function ytSearch(sc){
       if(fresh.length){ ytCachePut(sc.id,fresh,{searched:false}); return fresh; }
     }catch(e){ return cached.items; }   // 確認に失敗しても、あるものは使う
   }
-  const q=ytQuery(sc);
-  let items=await ytFetch(ytUrl(q));
-  // 長さで絞ると何も見つからないシーンがありうる。そのときだけ長さの条件を外して引き直す
-  if(!items.length) items=await ytFetch(ytUrl(q,{long:false}));
-  try{ items=await ytVerify(items); }catch(e){ /* 確認できなくても検索結果は使う */ }
-  ytCachePut(sc.id,items);
-  return items;
+  // 見つからなかったことも覚えておく。毎回4回引き直すとクォータを食う
+  if(cached && !cached.items.length && Date.now()-cached.at<YT_FAIL_TTL) return [];
+
+  for(const step of ytLadder(sc)){
+    let items=await ytFetch(ytUrl(step.q,{long:step.long}));
+    if(items.length){
+      try{ items=await ytVerify(items); }catch(e){ /* 確認できなくても検索結果は使う */ }
+    }
+    if(items.length){ ytCachePut(sc.id,items); return items; }
+  }
+  ytCachePut(sc.id,[]);
+  return [];
 }
 
 function ytPlayer(i){

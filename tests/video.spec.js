@@ -186,3 +186,66 @@ test('埋め込めなくなった動画は一覧から外れる', async ({ page 
   expect(items.length).toBe(3);            // 6件のうち偶数番目だけ残る
   expect(items.every(v => v.dur === 1500)).toBe(true);
 });
+
+test('見つからないときは検索語を減らして引き直す', async ({ page }) => {
+  // D-45。語を絞ったまま諦めると、在庫の薄いシーンで背景が出ないままになる
+  await page.addInitScript(() => {
+    window.__searches = [];
+    window.__loaded = [];
+    const origFetch = window.fetch;
+    window.fetch = function (url, ...rest) {
+      if (String(url).includes('youtube/v3/search')) window.__searches.push(String(url));
+      return origFetch.call(this, url, ...rest);
+    };
+    window.YT = {
+      Player: function (id, opts) {
+        const el = document.getElementById(id);
+        const f = document.createElement('iframe');
+        f.id = id;
+        el.replaceWith(f);
+        this.loadVideoById = o => window.__loaded.push(o.videoId);
+        this.mute = () => {};
+        this.playVideo = () => {};
+        this.pauseVideo = () => {};
+        setTimeout(() => opts.events.onReady({ target: this }), 10);
+      },
+    };
+  });
+  // 語が3つ以下のときだけ結果を返す = 絞り込んだ検索は空振りする
+  await page.route('**/youtube/v3/search*', route => {
+    const q = new URL(route.request().url()).searchParams.get('q') || '';
+    const hit = q.trim().split(/\s+/).length <= 3;
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ items: hit ? ITEMS : [] }),
+    });
+  });
+  await page.route('**/youtube/v3/videos*', route => {
+    const ids = new URL(route.request().url()).searchParams.get('id').split(',');
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: ids.map(id => ({
+          id,
+          contentDetails: { duration: 'PT30M' },
+          status: { embeddable: true, privacyStatus: 'public', license: 'creativeCommon' },
+        })),
+      }),
+    });
+  });
+
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(0).click();   // 潜行。語が6つある
+  await page.locator('#ytkey').fill('test-key');
+  await page.locator('#ytkey').blur();
+
+  // 語が減ったところで当たり、動画が出る
+  await expect(page.locator('#vcap')).toContainText('CC BY', { timeout: 10000 });
+  const qs = (await page.evaluate(() => window.__searches))
+    .map(u => decodeURIComponent(new URL(u).searchParams.get('q')));
+  expect(qs.length).toBeGreaterThan(2);
+  // 語数が段々減っている
+  const counts = qs.map(q => q.trim().split(/\s+/).length);
+  expect(counts[0]).toBeGreaterThan(counts[counts.length - 1]);
+  expect(counts[counts.length - 1]).toBeLessThanOrEqual(3);
+});
