@@ -195,12 +195,16 @@ test('並びが切り替わる前の小節にオカズが入る', async ({ page 
   const toms = sine.filter(([v]) => !common.includes(v)).map(([, t]) => t);
   expect(toms.length).toBeGreaterThan(0);
 
-  // オカズは小節の後ろ半分に置かれる。はみ出したぶんだけが頭に来る
+  // オカズは小節の後ろ半分に置かれる。はみ出したぶんだけが次の小節の頭に来る (D-20)。
+  // つまり打点は「後ろ半分」か「頭のすぐ近く」のどちらかに集まる
   const bar = (60 / bpm) * 4;
   const base = Math.floor(Math.min(...toms) / bar) * bar;
   const inBar = toms.map(t => ((t - base) / bar) % 1);
   const late = inBar.filter(u => u > 0.5).length;
-  expect(late / inBar.length).toBeGreaterThan(0.6);
+  const head = inBar.filter(u => u < 0.15).length;
+  expect((late + head) / inBar.length).toBeGreaterThan(0.8);
+  // 主役は後ろ半分。はみ出しはそれより少ない
+  expect(late).toBeGreaterThan(head);
 });
 
 test('16分のシーケンスが鳴る', async ({ page }) => {

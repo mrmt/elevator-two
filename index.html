@@ -573,7 +573,7 @@ ja:{
   'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
   'circuit.stab':'スタブ','circuit.jazz':'エレピ','circuit.sustain':'持続','circuit.funk':'持続(薄)',
   'mode2.break':'ブレイク','mode2.morph':'連続変形','mode2.mix':'ミックス',
-  'mode3.chop':'連打',
+  'mode3.chop':'連打','noise.label':'ノイズ',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -634,7 +634,7 @@ en:{
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
   'mode2.break':'break','mode2.morph':'morph','mode2.mix':'mix',
-  'mode3.chop':'chop',
+  'mode3.chop':'chop','noise.label':'noise',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -784,6 +784,7 @@ let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
     leadBus=null, leadFilt=null, leadDly=null, leadTaps=null,
     chopBus=null, chopDly=null, chopTaps=null,
+    noiseBus=null, noiseSat=null,
     phaserSend=null, phaserWet=null, phaserLfo=null,
     noiseBuf=null, metalBuf=null,
     running=false, ready=false;
@@ -1029,7 +1030,36 @@ function buildHarmony(){
   const eRev=ctx.createGain(); eRev.gain.value=.35; epBus.connect(eRev).connect(revSend);
   const eDly=ctx.createGain(); eDly.gain.value=.2;  epBus.connect(eDly).connect(dlySend);
 
-  /* ---- コード弾きの連打 (D-34) ----
+  /* ---- インダストリアル・ノイズの発音 (D-38) ----
+   1音ごとに音色を不規則に振る。素材・再生速度・フィルタの種類と帯域・
+   減衰の長さを毎回引き直すので、同じ音は二度と出ない */
+function industrialHit(time,vel,pan){
+  const metal=Math.random()<.45;
+  const src=ctx.createBufferSource();
+  src.buffer = metal ? metalBuf : noiseBuf;
+  src.loop=true;
+  src.playbackRate.value = metal ? rand(.35,2.6) : rand(.6,1.8);
+  // ときどき再生速度を落として、崩れ落ちるような音にする
+  if(Math.random()<.3) src.playbackRate.exponentialRampToValueAtTime(
+    Math.max(.15,src.playbackRate.value*rand(.25,.6)), time+rand(.08,.3));
+
+  const f=ctx.createBiquadFilter();
+  f.type = Math.random()<.55 ? 'bandpass' : 'highpass';
+  f.frequency.value = rand(320,7200);
+  f.Q.value = rand(.8,12);
+  if(Math.random()<.35) f.frequency.exponentialRampToValueAtTime(
+    Math.max(180,f.frequency.value*rand(.2,3)), time+rand(.06,.35));
+
+  const dec=rand(.02,.28);
+  const g=ctx.createGain(), pn=ctx.createStereoPanner();
+  pn.pan.value=clamp(pan+rand(-.08,.08),-1,1);
+  decayTo(g.gain,time,vel*.26,dec,.002);
+  src.connect(f).connect(g).connect(pn).connect(noiseBus);
+  src.start(time); src.stop(time+dec+.05);
+  for(const n of [src,f,g,pn]) disposeAt(n,time+dec+.12);
+}
+
+/* ---- コード弾きの連打 (D-34) ----
      持続する音色の代わりに、サステインを持たない短い和音を連打する。
      専用のステレオディレイ (左右で返しを送り合う ping-pong) へ送り、
      原音より返しのほうが多く出るようにする */
@@ -1052,6 +1082,21 @@ function buildHarmony(){
   chL.lp.connect(chL.fb).connect(chR.d);
   chR.lp.connect(chR.fb).connect(chL.d);
   chopTaps={l:chL,r:chR};
+
+  /* ---- インダストリアル・ノイズ (D-38) ----
+     小節に乗らない周期で回る打点。左右それぞれが独立した周期を持ちうる */
+  noiseBus=ctx.createGain(); noiseBus.gain.value=0;
+  noiseSat=ctx.createWaveShaper();
+  {
+    const n=1024, curve=new Float32Array(n);
+    for(let i=0;i<n;i++){ const x=i/(n-1)*2-1; curve[i]=Math.tanh(x*2.6); }
+    noiseSat.curve=curve; noiseSat.oversample='2x';
+  }
+  noiseBus.connect(noiseSat);
+  noiseSat.connect(dry);
+  const nRev=ctx.createGain(); nRev.gain.value=.22; noiseSat.connect(nRev).connect(revSend);
+  const nDly=ctx.createGain(); nDly.gain.value=.18; noiseSat.connect(nDly).connect(dlySend);
+  build.noiseSends={rev:nRev,dly:nDly};
 
   build.harmSends={pad:{rev:pRev,dly:pDly}, stab:{dry:sDry,rev:sRev,dly:sDly}, ep:{rev:eRev,dly:eDly}};
 
@@ -1362,6 +1407,39 @@ function bassCutoffBase(){
    上2層はアルペジオと高域リフで、打点ごとに鳴らす */
 // ベースの音色。シーンに入るたびに引き直す。
 // true なら、サスティンを持たずディケイだけで落ちるタイトな音になる (D-25)
+/* インダストリアル・ノイズ (D-38)。
+   周期は16分5〜15個、または8分5〜7個。どちらも16の約数にならないので、
+   小節をまたぐたびに位置がずれてポリリズムになる */
+const NOISE_P={stab:.6, jazz:.2, funk:.3, sustain:.2};
+let noiseOn=false, noiseGens=[];
+
+function makeNoiseGen(pan){
+  const eighth=Math.random()<.5;
+  let count, len;
+  do{
+    count = eighth ? 5+Math.floor(Math.random()*3)     // 8分5〜7個
+                   : 5+Math.floor(Math.random()*11);   // 16分5〜15個
+    len = eighth ? count*2 : count;                    // 16分に換算した周期
+    // 16の約数だと小節にそのまま乗ってしまい、ポリリズムにならない (16分8個がこれに当たる)
+  }while(16 % len === 0);
+  const step = eighth ? 2 : 1;
+  const pat=new Array(len).fill(null);
+  for(let i=0;i<len;i+=step){
+    if(Math.random()<.35) continue;                        // 休符
+    pat[i]={vel:.4+Math.random()*.5};
+  }
+  if(!pat.some(Boolean)) pat[0]={vel:.7};
+  return {len,pat,pan,count,eighth};
+}
+function rollNoise(group){
+  noiseOn = Math.random() < (NOISE_P[group]||0);
+  if(!noiseOn){ noiseGens=[]; return; }
+  // 7割は左右それぞれ独立した周期。3割はどちらか片側だけ
+  noiseGens = Math.random()<.7
+    ? [makeNoiseGen(-.82), makeNoiseGen(.82)]
+    : [makeNoiseGen(Math.random()<.5 ? -.82 : .82)];
+}
+
 let bassTight=false;
 // true なら、持続する和音の代わりに短い和音を連打する (D-34)
 let padChop=false;
@@ -1407,6 +1485,35 @@ function padPluck(time,midi,layerIdx,type,dec,vel){
   o.connect(g).connect(pn).connect(padLayer[layerIdx]);
   o.start(time); o.stop(time+dec+.05);
   disposeAt(o,time+dec+.1); disposeAt(g,time+dec+.1); disposeAt(pn,time+dec+.1);
+}
+
+/* ---- インダストリアル・ノイズの発音 (D-38) ----
+   1音ごとに音色を不規則に振る。素材・再生速度・フィルタの種類と帯域・
+   減衰の長さを毎回引き直すので、同じ音は二度と出ない */
+function industrialHit(time,vel,pan){
+  const metal=Math.random()<.45;
+  const src=ctx.createBufferSource();
+  src.buffer = metal ? metalBuf : noiseBuf;
+  src.loop=true;
+  src.playbackRate.value = metal ? rand(.35,2.6) : rand(.6,1.8);
+  // ときどき再生速度を落として、崩れ落ちるような音にする
+  if(Math.random()<.3) src.playbackRate.exponentialRampToValueAtTime(
+    Math.max(.15,src.playbackRate.value*rand(.25,.6)), time+rand(.08,.3));
+
+  const f=ctx.createBiquadFilter();
+  f.type = Math.random()<.55 ? 'bandpass' : 'highpass';
+  f.frequency.value = rand(320,7200);
+  f.Q.value = rand(.8,12);
+  if(Math.random()<.35) f.frequency.exponentialRampToValueAtTime(
+    Math.max(180,f.frequency.value*rand(.2,3)), time+rand(.06,.35));
+
+  const dec=rand(.02,.28);
+  const g=ctx.createGain(), pn=ctx.createStereoPanner();
+  pn.pan.value=clamp(pan+rand(-.08,.08),-1,1);
+  decayTo(g.gain,time,vel*.26,dec,.002);
+  src.connect(f).connect(g).connect(pn).connect(noiseBus);
+  src.start(time); src.stop(time+dec+.05);
+  for(const n of [src,f,g,pn]) disposeAt(n,time+dec+.12);
 }
 
 /* ---- コード弾きの連打 (D-34) ----
@@ -1739,6 +1846,8 @@ function apply(){
     }
     // 連打の量とディレイ。ディレイはテンポに同期させ、左右で16分3つと5つ
     chopBus.gain.setTargetAtTime(padChop?(.7*(.6+c.density*.5)):0,tm,T*2);
+    noiseBus.gain.setTargetAtTime(noiseOn?(.5+c.density*.4)*(phrase==='break'?.2:1):0,tm,T*2);
+    build.noiseSends.dly.gain.setTargetAtTime(.1+c.space*.35,tm,T);
     chopDly.gain.setTargetAtTime(.45+c.space*.6,tm,T*2);
     chopTaps.l.d.delayTime.setTargetAtTime(sd*3,tm,1.2);
     chopTaps.r.d.delayTime.setTargetAtTime(sd*5,tm,1.2);
@@ -1843,6 +1952,7 @@ function enterScene(idx,{manual=false,keepKey=false}={}){
   pickProg();         // 回路が変わるので和音の進行も選び直す
   // 陽と electro funk では刻む音になりやすく、陰では持続する音になりやすい
   bassTight = Math.random() < .5;   // 持続する音色とタイトな音色を半々で引く (D-25)
+  rollNoise(SCENES[idx].group);     // インダストリアル・ノイズを出すかどうか (D-38)
   // コード弾きを持続音にするか連打にするか (D-34)。出やすさはシーンごとに持つ
   padChop = Math.random() < (SCENES[idx].chop||0);
   chordAt=-999;       // 次の小節で必ず和音を組み直す
@@ -2411,6 +2521,15 @@ function playStep(i,time){
   // --- ハーモニー
   if(seq.stab[i]) stabHit(time,seq.stab[i]);
   if(seq.ep[i])   epChord(time,seq.ep[i]);
+  // インダストリアル・ノイズ。小節ではなく通し番号で回すのでポリリズムになる (D-38)
+  if(noiseOn && phrase!=='break'){
+    const g0=barCount*16+i;
+    for(const gen of noiseGens){
+      const e=gen.pat[((g0%gen.len)+gen.len)%gen.len];
+      if(e) industrialHit(time,e.vel,gen.pan);
+    }
+  }
+
   if(seq.chop[i]) chordChop(time,seq.chop[i]);
   const L=padLayers();
   if(L>=3 && seq.arp[i]){
@@ -2768,7 +2887,9 @@ function showProgress(){
   pKey.textContent=`${NOTE_NAMES[keyPc]} ${t('mode.'+SCENES[sceneIdx].group)}`;
   const q=chordQual==='x13'?'13':chordQual;
   const mode = (circuit()==='sustain'||circuit()==='funk') && padChop ? ' '+t('mode3.chop') : '';
-  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${mode}${epGuest?' + ep':''}]`;
+  // ノイズ層の周期も出す。ポリリズムがどう回っているかはここでしか分からない
+  const nz = noiseOn ? '  ' + t('noise.label') + ' ' + noiseGens.map(g=>g.len).join('/') : '';
+  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${mode}${epGuest?' + ep':''}]${nz}`;
 }
 
 /* ---- XY パッド ---- */

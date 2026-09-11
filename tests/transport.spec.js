@@ -54,6 +54,9 @@ test('16小節でフレーズが切り替わる', async ({ page }) => {
   test.setTimeout(120000);
   // BPM を上げて待ち時間を詰める
   await page.locator('#s_bpm').fill('140');
+  // 「展開」を上げると8小節の折り返しでも切り替わる (D-11)。
+  // ここで見たいのは16小節ぶんの区切りなので、切らずに走らせる
+  await page.locator('#s_evolution').fill('0');
   await page.locator('#play').click();
 
   // フレーズの最後の小節まで進むのを待つ
@@ -311,4 +314,44 @@ test('ベースの旋律は小節ごとには変わらない', async ({ page }) 
   let same = 0;
   for (let i = 1; i < sigs.length; i++) if (sigs[i] === sigs[i - 1]) same++;
   expect(same / (sigs.length - 1)).toBeGreaterThan(0.6);
+});
+
+test('インダストリアル・ノイズの出現率がジャンルごとに決まっている', async ({ page }) => {
+  test.setTimeout(120000);
+  // D-38。シーンに入るたびに引き直すので、同じシーンを選び直せば何度でも引ける
+  const label = async () => (await page.locator('#pchord').textContent()).trim();
+  const rate = async (idx, tries) => {
+    let on = 0;
+    for (let k = 0; k < tries; k++) {
+      await page.locator('.scenebtn').nth(idx).click();
+      if ((await label()).includes('ノイズ')) on++;
+    }
+    return on / tries;
+  };
+  // 標本が小さいので幅を広く取る。狙いは 0.6 / 0.2 / 0.3 / 0.2
+  expect(await rate(0, 90)).toBeGreaterThan(0.42);    // 潜行 (stab)
+  expect(await rate(4, 90)).toBeLessThan(0.4);        // 微睡 (jazz)
+  expect(await rate(11, 90)).toBeLessThan(0.4);       // 曙 (sustain)
+});
+
+test('ノイズの周期は小節に乗らない', async ({ page }) => {
+  test.setTimeout(90000);
+  // 16分5〜15個、または8分5〜7個。どれも16の約数にならないのでポリリズムになる (D-38)
+  const lens = [];
+  let stereo = 0, single = 0;
+  for (let k = 0; k < 80; k++) {
+    await page.locator('.scenebtn').nth(0).click();   // 潜行。最も出やすい
+    const m = (await page.locator('#pchord').textContent()).match(/ノイズ ([\d/]+)/);
+    if (!m) continue;
+    const parts = m[1].split('/').map(Number);
+    parts.length === 2 ? stereo++ : single++;
+    lens.push(...parts);
+  }
+  expect(lens.length).toBeGreaterThan(20);
+  expect(Math.min(...lens)).toBeGreaterThanOrEqual(5);
+  expect(Math.max(...lens)).toBeLessThanOrEqual(15);
+  // 16の約数だと小節にそのまま乗ってしまう
+  expect(lens.filter(v => 16 % v === 0).length).toBe(0);
+  // 7割は左右それぞれ独立、3割は片側だけ
+  expect(stereo).toBeGreaterThan(single);
 });
