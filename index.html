@@ -391,53 +391,6 @@
   html[data-theme="ek"] .scene{color:var(--amber)}
   html[data-theme="ek"] #tip{background:#101012}
 
-  /* ---- ER: パッチング & シグナルフロー ----
-     ブロック間をパッチケーブルで結び、ボタンはジャックの形にする。
-     背景にはシルク印刷風の幾何学模様を薄く敷く */
-  html[data-theme="er"]{
-    --sea-top:#25211D; --sea-mid:#1F1C18; --sea-bot:#171512;
-    --panel:rgba(255,255,255,.05); --panel-hi:rgba(255,255,255,.1);
-    --line:rgba(237,230,218,.2);
-    --ink:#EDE6DA; --dim:rgba(237,230,218,.58);
-    --amber:#D2552F; --accent2:#6FA0B5; --accent3:#E0B44A;
-    --disp:'Futura','Avenir Next','Helvetica Neue',sans-serif;
-    --scope:rgba(111,160,181,.85);
-    --pad-a:#221E1A; --pad-b:#15130F;
-  }
-  html[data-theme="er"] section{
-    background:
-      radial-gradient(circle at 18% 12%, rgba(237,230,218,.05) 0 1px, transparent 1.5px),
-      radial-gradient(circle at 78% 62%, rgba(237,230,218,.05) 0 1px, transparent 1.5px),
-      repeating-radial-gradient(circle at 110% -10%, transparent 0 38px, rgba(237,230,218,.035) 38px 39px),
-      rgba(0,0,0,.24);
-  }
-  /* ケーブルを描く層。ER のときだけ出す */
-  #cables{position:absolute;inset:0;pointer-events:none;z-index:5;display:none}
-  html[data-theme="er"] #cables{display:block}
-  main{position:relative}
-  /* 入出力端子。丸い座金に穴が開いているように見せる */
-  html[data-theme="er"] .tbtn.xport{
-    border-radius:50%;background:radial-gradient(circle at 50% 45%, #101010 0 38%, #4A433C 39% 60%, #2A2621 61% 100%);
-    border:1px solid rgba(237,230,218,.3);
-  }
-  html[data-theme="er"] .tbtn.xport[data-on="1"]{
-    background:radial-gradient(circle at 50% 45%, #1A1207 0 38%, var(--amber) 39% 62%, #7A3218 63% 100%);
-    border-color:var(--amber);color:#1A1207;
-  }
-  html[data-theme="er"] .lamp{
-    border-radius:50%;width:11px;height:11px;
-    background:radial-gradient(circle at 50% 45%, #0C0B09 0 42%, #4A433C 43% 100%);
-  }
-  html[data-theme="er"] .toggle[aria-pressed="true"] .lamp{
-    background:radial-gradient(circle at 50% 45%, #0C0B09 0 42%, var(--amber) 43% 100%);
-    box-shadow:0 0 8px rgba(210,85,47,.6);
-  }
-  html[data-theme="er"] .toggle{border-radius:3px}
-  html[data-theme="er"] .steps i.on{background:var(--accent3)}
-  html[data-theme="er"] .steps i.hat{background:var(--accent2)}
-  html[data-theme="er"] .steps i.now{background:var(--amber);box-shadow:0 0 7px rgba(210,85,47,.7)}
-  html[data-theme="er"] .scenebtn[aria-pressed="true"]{border-left-color:var(--amber);color:var(--accent3)}
-
   /* ---- テーマの選択 ---- */
   #themes{display:flex;gap:.3rem;margin-bottom:.2rem}
   .themebtn{
@@ -471,8 +424,6 @@
 </nav>
 
 <main id="main" data-tab="pad">
-  <!-- ER のときだけ出る。ブロック間を結ぶパッチケーブル -->
-  <svg id="cables" aria-hidden="true"></svg>
   <section id="tab-scene">
     <div class="eyebrow" data-i18n="section.scene">シーン</div>
     <!-- 今のシーンを打ち切って次へ進む。波は進むので、行き先は陰陽の位置が決める -->
@@ -554,11 +505,10 @@ ja:{
   'tab.scene':'シーン','tab.pad':'XYパッド','tab.sound':'音作り',
   'section.scene':'シーン','section.next':'次へ','section.pad':'XYパッド — ドラッグで目標を移動',
   'section.params':'パラメータ','section.clock':'クロック','section.bg':'背景','section.theme':'見た目',
-  'theme.sea':'既定','theme.te':'TE','theme.ek':'EK','theme.er':'ER',
+  'theme.sea':'既定','theme.te':'TE','theme.ek':'EK',
   'tip.theme.sea':'elevator-one から引き継いだ海の色',
   'tip.theme.te':'ミニマル & インダストリアル。アルミ削り出しの面に等間隔グリッドと原色のアクセント',
   'tip.theme.ek':'ダーク & サイバネティクス。漆黒の筐体、16個のキースイッチ、囲まれた機能ブロック',
-  'tip.theme.er':'パッチング & シグナルフロー。ブロック間をケーブルで結び、ボタンはジャックの形',
   'param.bgvideo':'動画を流す','param.ytkey':'YouTube APIキー',
   'tip.bgvideo':'XYパッドの背景に、いまのシーンの英語名で探した動画を音無しで流す。4小節ごとに差し替わる',
   'tip.ytkey':'YouTube Data API のキー。ブラウザにだけ保存され、外部へは送らない。空にすると動画は止まる',
@@ -615,11 +565,10 @@ en:{
   'tab.scene':'scene','tab.pad':'XY pad','tab.sound':'sound',
   'section.scene':'scene','section.next':'next','section.pad':'XY pad — drag to move the target',
   'section.params':'parameters','section.clock':'clock','section.bg':'background','section.theme':'look',
-  'theme.sea':'default','theme.te':'TE','theme.ek':'EK','theme.er':'ER',
+  'theme.sea':'default','theme.te':'TE','theme.ek':'EK',
   'tip.theme.sea':'The sea palette inherited from elevator-one',
   'tip.theme.te':'Minimal & industrial. Machined aluminium, an even grid, primary-colour accents.',
   'tip.theme.ek':'Dark & cybernetic. Black chassis, sixteen key switches, blocks boxed like silkscreen.',
-  'tip.theme.er':'Patching & signal flow. Blocks joined by cables, buttons shaped like jacks.',
   'param.bgvideo':'video','param.ytkey':'YouTube API key',
   'tip.bgvideo':'Plays muted video behind the XY pad, found by the current scene name. Swaps every 4 bars.',
   'tip.ytkey':'Your YouTube Data API key. Stored in this browser only; never sent anywhere else. Clear it to stop the video.',
@@ -2850,7 +2799,7 @@ document.getElementById('next').addEventListener('click',e=>{
 });
 
 /* ---- テーマ (D-37) ---- */
-const THEMES=['sea','te','ek','er'];
+const THEMES=['sea','te','ek'];
 const THEME_STORE='elevator-two:theme';
 let theme='sea', themePad={a:'',b:''};
 try{ const v=localStorage.getItem(THEME_STORE); if(THEMES.includes(v)) theme=v; }catch(_){ }
@@ -2876,7 +2825,6 @@ function setTheme(id){
   const cs=getComputedStyle(document.documentElement);
   themePad={a:cs.getPropertyValue('--pad-a').trim(), b:cs.getPropertyValue('--pad-b').trim()};
   scopeColorCache=cs.getPropertyValue('--scope').trim();
-  layoutCables();
 }
 
 /* ---- スライダー ---- */
@@ -3342,42 +3290,6 @@ keyEl.addEventListener('change',()=>{
 let scopeColorCache='';
 function scopeColor(){ return scopeColorCache || 'rgba(216,163,64,.7)'; }
 
-/* ---- パッチケーブル (ER のみ) ----
-   セクションの端をジャックに見立て、間をたるんだベジェ曲線で結ぶ */
-const cablesEl=document.getElementById('cables');
-function layoutCables(){
-  if(theme!=='er'){ cablesEl.innerHTML=''; return; }
-  const host=mainEl.getBoundingClientRect();
-  const secs=[...mainEl.querySelectorAll('section')].filter(el=>el.offsetParent!==null);
-  if(secs.length<2){ cablesEl.innerHTML=''; return; }
-  cablesEl.setAttribute('viewBox',`0 0 ${host.width} ${host.height}`);
-  // 端子はブロックの内側に少し入れる。境目の真上に置くと2点が重なり、
-  // ケーブルが細い輪になってしまう
-  const INSET=30;
-  const pt=(r,side,ry)=>({
-    x:(side==='r'?r.right-INSET:r.left+INSET)-host.left,
-    y:r.top-host.top+r.height*ry,
-  });
-  let d='';
-  for(let i=0;i<secs.length-1;i++){
-    // 隣り合うブロックの境目に端子を置き、その間をケーブルがたるんで垂れる形にする。
-    // 高さを揃えないと縦に伸びた線になってしまうので、両端は同じ高さに置く
-    const ry=.16+i*.1;
-    const a=pt(secs[i].getBoundingClientRect(),'r',ry);
-    const b=pt(secs[i+1].getBoundingClientRect(),'l',ry);
-    const sag=78+i*22;
-    // 端子からいったん下へ垂らしてから相手へ向かう。差し込んだケーブルらしくなる
-    d+=`<path d="M${a.x} ${a.y} C ${a.x+8} ${a.y+sag}, ${b.x-8} ${b.y+sag}, ${b.x} ${b.y}"
-          fill="none" stroke="${i%2?'var(--accent2)':'var(--amber)'}" stroke-width="2.6"
-          stroke-linecap="round" opacity=".62"/>`;
-    for(const p of [a,b]){
-      d+=`<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="#0C0B09" stroke="var(--line)" stroke-width="1.4"/>`;
-    }
-  }
-  cablesEl.innerHTML=d;
-}
-window.addEventListener('resize',layoutCables);
-
 /* ---- 読み出し ---- */
 const rYY=document.getElementById('ryy'), rD=document.getElementById('rd'),
       rBPM=document.getElementById('rbpm'), rBar=document.getElementById('rbar');
@@ -3574,7 +3486,6 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
   mainEl.dataset.tab=b.dataset.tab;
   tabBtns.forEach(o=>o.setAttribute('aria-selected',String(o===b)));
   resize(); // display:none 明けの canvas を再計測
-  layoutCables();
 }));
 
 /* ---- ツールチップ ---- */
