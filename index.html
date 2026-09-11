@@ -181,6 +181,34 @@
     .overlay .k{font-size:clamp(.6rem,2.2vh,.82rem)}
   }
 
+  /* ---- 大きな再生ボタン (Issue #1) ----
+     右上の小さなボタンだけでは、まず押さないと鳴らないことに気づけない。
+     YouTube と同じく、面の中央に大きく置く */
+  #bigplay{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:4;display:flex;align-items:center;justify-content:center;
+    width:clamp(64px,14vmin,104px);height:clamp(64px,14vmin,104px);
+    border-radius:50%;
+    background:rgba(0,0,0,.42);
+    border:2px solid var(--amber);
+    color:var(--amber);
+    box-shadow:0 0 0 0 rgba(216,163,64,.45);
+    transition:background .18s,color .18s,transform .18s,box-shadow .6s;
+    animation:bigpulse 2.6s ease-out infinite;
+  }
+  #bigplay[hidden]{display:none}
+  #bigplay svg{width:44%;height:44%;fill:currentColor;margin-left:8%}
+  #bigplay:hover{background:var(--amber);color:#101A22;transform:translate(-50%,-50%) scale(1.06)}
+  /* 気づいてもらうための呼吸。控えめに一度ずつ広がる */
+  @keyframes bigpulse{
+    0%{box-shadow:0 0 0 0 rgba(216,163,64,.45)}
+    70%{box-shadow:0 0 0 18px rgba(216,163,64,0)}
+    100%{box-shadow:0 0 0 0 rgba(216,163,64,0)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    #bigplay{animation:none}
+  }
+
   /* ---- tooltip ---- */
   #tip{
     position:fixed;z-index:60;max-width:15rem;pointer-events:none;
@@ -443,6 +471,10 @@
       <div class="plane" id="plane">
         <div id="bg" hidden><div class="vid" id="vid0"><div id="yt0"></div></div><div class="vid" id="vid1"><div id="yt1"></div></div></div>
         <canvas id="cv"></canvas>
+        <!-- 大きな再生ボタン。止まっている間だけ出す (Issue #1) -->
+        <button id="bigplay" data-i18n-aria="transport.play" data-i18n-tip="tip.play" aria-label="再生">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5 19.5 12 7 19.5z"/></svg>
+        </button>
         <div class="vcap" id="vcap"></div>
         <div class="overlay">
           <div><span class="k" data-i18n="pad.yy">陰陽</span><b id="ryy">—</b></div>
@@ -3434,8 +3466,10 @@ setInterval(reviveAudio,4000);
 /* ---- 再生 / 一時停止 ---- */
 const playBtn=document.getElementById('play');
 const pauseBtn=document.getElementById('pause');
+const bigPlay=document.getElementById('bigplay');
 
 function setPowerUI(on){
+  bigPlay.hidden=on;   // 止まっている間だけ大きなボタンを出す (Issue #1)
   playBtn.dataset.on=on?'1':'0';
   pauseBtn.dataset.on=on?'0':'1';
   playBtn.setAttribute('aria-pressed',on?'true':'false');
@@ -3481,6 +3515,10 @@ function stopAudio(){
 }
 
 playBtn.addEventListener('click',()=>{ startAudio(); });
+// パッドは pointerdown でポインタを捕まえるので、そのままだと click が
+// パッド側へ吸われてボタンに届かない。ここで伝播を止める
+bigPlay.addEventListener('pointerdown',e=>e.stopPropagation());
+bigPlay.addEventListener('click',()=>{ startAudio(); });
 pauseBtn.addEventListener('click',stopAudio);
 
 /* ---- タブ切替 (狭幅時のみ表示) ---- */

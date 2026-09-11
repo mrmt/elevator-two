@@ -404,3 +404,17 @@ test('音程が動かない小節ではベースのフィルタが揺れる', as
   await page.locator('#play').click();
   await expect(page.locator('#pchord')).toContainText('+ゆらぎ', { timeout: 15000 });
 });
+
+test('大きな再生ボタンで鳴りはじめ、鳴っている間は消える', async ({ page }) => {
+  // Issue #1。パッドは pointerdown でポインタを捕まえるので、
+  // 伝播を止めていないと click がパッド側へ吸われてボタンに届かない
+  await expect(page.locator('#bigplay')).toBeVisible();
+  await page.locator('#bigplay').click();
+
+  await expect(page.locator('#play')).toHaveAttribute('data-on', '1');
+  await expect(page.locator('#bigplay')).toBeHidden();
+
+  // 止めればまた出る
+  await page.locator('#pause').click();
+  await expect(page.locator('#bigplay')).toBeVisible();
+});

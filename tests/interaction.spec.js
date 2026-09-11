@@ -84,3 +84,16 @@ test('テーマを切り替えると見た目が変わり、次に開いても�
   await page.locator('.themebtn').first().click();
   expect(await page.getAttribute('html', 'data-theme')).toBeNull();
 });
+
+test('大きな再生ボタンがXYパッドの中央に出る', async ({ page, isMobile }) => {
+  // Issue #1。右上の小さなボタンだけでは、まず押さないと鳴らないことに気づけない
+  if (isMobile) await page.locator('.tab[data-tab="pad"]').click();
+  await expect(page.locator('#bigplay')).toBeVisible();
+
+  const pad = await page.locator('#plane').boundingBox();
+  const btn = await page.locator('#bigplay').boundingBox();
+  expect(Math.abs((btn.x + btn.width / 2) - (pad.x + pad.width / 2))).toBeLessThan(2);
+  expect(Math.abs((btn.y + btn.height / 2) - (pad.y + pad.height / 2))).toBeLessThan(2);
+  // 指でも押せる大きさ
+  expect(btn.width).toBeGreaterThan(56);
+});
