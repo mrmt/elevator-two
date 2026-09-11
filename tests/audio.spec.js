@@ -51,9 +51,12 @@ test('音の予約が16分のグリッドに乗る', async ({ page }) => {
 
   // ハットには打点ごとに ±3ms ほどの揺らぎを乗せてある (16分のおよそ2.5%)。
   // なお、クラップの連射・エレピの分散・グリッチの32分は設計上わざと格子から外している。
-  // 曙 (warm キット、スネア) を選び、グリッチを切っているのはそれらを避けるため
+  // 曙 (warm キット、スネア) を選び、グリッチを切っているのはそれらを避けるため。
+  // ハットとオカズにはときどき32分が入る (D-47) ので、16分の格子からはそのぶん外れる
   const step = (60 / bpm) / 4;
-  expect(gridFit(starts, step, 0.05)).toBeGreaterThan(0.95);
+  expect(gridFit(starts, step, 0.05)).toBeGreaterThan(0.8);
+  // 32分まで含めればほぼ全部が乗る
+  expect(gridFit(starts, step / 2, 0.05)).toBeGreaterThan(0.95);
 });
 
 test('Ladder フィルタが AudioWorklet で動く', async ({ page }) => {

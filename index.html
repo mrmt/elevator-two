@@ -2103,7 +2103,7 @@ function maybeEvent(bar,time){
    各トラックは16個の強さ (0 なら鳴らさない) を持つ。
    ============================================================ */
 const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[],bass:[],
-           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[],chop:[]};
+           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[],chop:[],hat32:[]};
 let leadType='sawtooth';   // 16分シーケンスの音色。小節ごとに引き直す
 // オカズが次の小節へはみ出したぶん。次の小節の頭に足される
 let pendingSpill=null;
@@ -2294,7 +2294,15 @@ function buildBar(bar,scIdx,phr,seed,fillBar){
     const cand=[2,6,10,14].filter(i=>hat[i]>0 || R()<.4);
     if(cand.length){ const i=cand[Math.floor(R()*cand.length)]; oh[i]=.8; hat[i]=0; }
   }
-  out.hat=hat; out.ohat=oh;
+  // ときどき32分で刻み直す (D-47)。定型のハットから外す仕掛けのひとつ
+  const h32=new Array(16).fill(0);
+  if(!quiet){
+    for(let i=0;i<16;i++){
+      if(!hat[i]) continue;
+      if(R()<.13+(phr==='build'?.07:0)) h32[i]=hat[i]*(.55+R()*.3);
+    }
+  }
+  out.hat=hat; out.ohat=oh; out.hat32=h32;
 
   // --- パーカッション: 互いに素な周期を回してポリリズムを作る (D-7)。
   // 小節をまたいで模様が変わっていくよう、位置は通し番号で決める
@@ -2390,18 +2398,23 @@ function isFillBar(bar){
 
 function makeFill(bar){
   const R=rng(patSeed+bar*131);
-  const len=[4,6,8][Math.floor(R()*3)];      // 小節の終わりから何ステップぶん使うか
+  const len=3+Math.floor(R()*8);             // 小節の終わりから3〜10ステップ
   const start=16-len;
   const kind=R()<.55?'tom':'snare';
+  const rest=.12+R()*.34;                    // この回の休符の出やすさ
+  let tone=.45+R()*.35;                      // 始まりの音程
   const fill=seq.fill;
   for(let n=0;n<len;n++){
     const i=start+n;
-    if(kind==='tom' && R()<.2) continue;      // タムは少し隙間を空ける
+    if(R()<rest) continue;                   // 休符。毎回違う場所が空く
     const u=n/(len-1||1);
-    const vel=.45+u*.5;                        // 終わりに向かって強くする
-    fill[i] = kind==='tom'
-      ? {v:'tom', vel, tone:.55-u*.9}          // 音程を下げながら並べる
-      : {v:'sd',  vel};
+    const vel=clamp(.35+u*.5+(R()-.5)*.3,.15,1);
+    // 音程は下り基調。ただし2割ほどは跳ね上がって、直線に並ばないようにする
+    tone = R()<.22 ? clamp(tone+rand(.2,.6),-.9,.9)
+                   : clamp(tone-rand(.05,.3),-.9,.9);
+    fill[i] = kind==='tom' ? {v:'tom', vel, tone} : {v:'sd', vel};
+    // ときどき32分で詰める
+    if(R()<.22) fill[i].sub={vel:vel*.8, tone:clamp(tone-rand(0,.25),-.9,.9)};
     if(kind==='snare'){ seq.hat[i]=0; seq.ohat[i]=0; }   // 場所を譲る
   }
   // はみ出し。次の小節の頭にひと打ちかふた打ち残す
@@ -2569,6 +2582,7 @@ function playStep(i,time){
   if(!hatOff){
     // ハットだけは打点をわずかにずらす。機械的に揃いすぎるのを避ける (D-7)
     if(seq.hat[i])  hh(time+rand(-.002,.003),seq.hat[i],false);
+    if(seq.hat32[i]) hh(time+sw*.5+rand(-.002,.003),seq.hat32[i],false);
     if(seq.ohat[i]) hh(time,seq.ohat[i],true);
   }
   const b=seq.bass[i];
@@ -2589,6 +2603,11 @@ function playStep(i,time){
     if(fl.v==='tom') tom(time,fl.vel,fl.tone??0);
     else if(fl.v==='sd') sd(time,fl.vel);
     else if(fl.v==='cy') cy(time,fl.vel);
+    // 32分の詰め
+    if(fl.sub){
+      if(fl.v==='tom') tom(time+sw*.5,fl.sub.vel,fl.sub.tone??0);
+      else if(fl.v==='sd') sd(time+sw*.5,fl.sub.vel);
+    }
   }
 
   // --- ハーモニー
