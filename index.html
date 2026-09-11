@@ -1358,7 +1358,11 @@ function bassNote(time,midi,durSec,vel,accent){
     const dec=Math.min(durSec*.55,.13);
     g.exponentialRampToValueAtTime(.0001,t+dec);
   }else{
-    g.setValueAtTime(vel*.9,t+durSec*.8);
+    // 頭を出したあと、サスティンは頭より低いところで伸ばす (D-43)。
+    // 頭と同じ高さで持たせると、鳴っている間じゅうベースが前に出続ける
+    const sus=Math.max(vel*.5,.0002);
+    g.exponentialRampToValueAtTime(sus,t+Math.min(durSec*.3,.16));
+    g.setValueAtTime(sus,t+durSec*.85);
     g.linearRampToValueAtTime(.0001,t+durSec);
   }
 
@@ -1848,7 +1852,7 @@ function apply(){
     bassPre.gain.setTargetAtTime(.6+c.drive*1.9,tm,T);
     // 疎な小節はフェーザーを掛け、そのぶん量を1割下げる (D-39)
     const sparse=bassSparse();
-    bassBus.gain.setTargetAtTime((phrase==='break'?.15:1)*(.45+c.weight*.5)*(sparse?.9:1),tm,T);
+    bassBus.gain.setTargetAtTime((phrase==='break'?.15:1)*(.36+c.weight*.42)*(sparse?.9:1),tm,T);
     bassPhWet.gain.setTargetAtTime(sparse?.55:0,tm,T*3);
     const res=bassResParam();
     // 揺らしている間は1音ごとに書くので、こちらからは触らない (D-42)
