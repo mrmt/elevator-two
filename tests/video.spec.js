@@ -27,6 +27,8 @@ async function stubYouTube(page) {
   await page.addInitScript(() => {
     window.__searches = [];
     window.__loaded = [];
+    window.__starts = [];
+    window.__rates = [];
     window.__verifies = [];
     const origFetch = window.fetch;
     window.fetch = function (url, ...rest) {
@@ -40,7 +42,8 @@ async function stubYouTube(page) {
         const f = document.createElement('iframe');
         f.id = id;
         el.replaceWith(f);
-        this.loadVideoById = o => window.__loaded.push(o.videoId);
+        this.loadVideoById = o => { window.__loaded.push(o.videoId); window.__starts.push(o.startSeconds); };
+        this.setPlaybackRate = r => window.__rates.push(r);
         this.mute = () => {};
         this.playVideo = () => {};
         this.pauseVideo = () => {};
@@ -192,6 +195,8 @@ test('見つからないときは検索語を減らして引き直す', async ({
   await page.addInitScript(() => {
     window.__searches = [];
     window.__loaded = [];
+    window.__starts = [];
+    window.__rates = [];
     const origFetch = window.fetch;
     window.fetch = function (url, ...rest) {
       if (String(url).includes('youtube/v3/search')) window.__searches.push(String(url));
@@ -203,7 +208,8 @@ test('見つからないときは検索語を減らして引き直す', async ({
         const f = document.createElement('iframe');
         f.id = id;
         el.replaceWith(f);
-        this.loadVideoById = o => window.__loaded.push(o.videoId);
+        this.loadVideoById = o => { window.__loaded.push(o.videoId); window.__starts.push(o.startSeconds); };
+        this.setPlaybackRate = r => window.__rates.push(r);
         this.mute = () => {};
         this.playVideo = () => {};
         this.pauseVideo = () => {};
@@ -248,4 +254,35 @@ test('見つからないときは検索語を減らして引き直す', async ({
   const counts = qs.map(q => q.trim().split(/\s+/).length);
   expect(counts[0]).toBeGreaterThan(counts[counts.length - 1]);
   expect(counts[counts.length - 1]).toBeLessThanOrEqual(3);
+});
+
+test('再生開始位置と再生速度を毎回振る', async ({ page }) => {
+  test.setTimeout(120000);
+  // Issue #2。いつも先頭から等速で始まると飽きるうえ、
+  // 冒頭がフェードインの動画では主題が映らないまま差し替わってしまう
+  await stubYouTube(page);
+  await page.goto('/index.html');
+  await page.locator('#ytkey').fill('test-key');
+  await page.locator('#ytkey').blur();
+  await expect(page.locator('#vcap')).toContainText('CC BY', { timeout: 8000 });
+
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+
+  // 4小節ごとに差し替わるので、何回かぶん貯める
+  await expect.poll(() => page.evaluate(() => window.__starts.length),
+    { timeout: 60000, intervals: [500] }).toBeGreaterThan(4);
+
+  const starts = await page.evaluate(() => window.__starts);
+  const rates = await page.evaluate(() => window.__rates);
+
+  // 頭から始めない。スタブの動画は31分20秒なので、30秒より後ろから始まる
+  expect(starts.every(v => v >= 30)).toBe(true);
+  // 毎回同じ位置にはならない
+  expect(new Set(starts).size).toBeGreaterThan(1);
+
+  // 速度は等速・半速・倍速のどれか
+  expect(rates.length).toBe(starts.length);
+  expect(rates.every(r => r === 1 || r === 0.5 || r === 2)).toBe(true);
 });

@@ -3303,10 +3303,19 @@ async function ytSwap(){
     ytLastId=v.id;
     const next=1-ytLayer;
     const pl=ytPlayers[next];
-    // 頭からではなく途中から流す。冒頭の題字や暗転を避ける
-    // 長さが分かっていれば、頭と終わりを避けた範囲から流し始める
-    const start = v.dur>90 ? Math.floor(rand(20,Math.max(30,v.dur-60))) : Math.floor(rand(5,20));
+    /* 頭からではなく途中から流す (Issue #2)。
+       冒頭の題字や暗転を避けるためと、毎回同じ絵から始まらないようにするため。
+       長さが分かっていれば頭と終わりを避けた範囲から、分からなければ広めに振る */
+    const dur=v.dur||0;
+    const start = dur>150 ? Math.floor(rand(30,dur-90))
+                : dur>60  ? Math.floor(rand(10,dur-30))
+                : dur>10  ? Math.floor(rand(2,dur*.5))
+                          : Math.floor(rand(15,180));
     pl.loadVideoById({videoId:v.id, startSeconds:start});
+    // 再生速度も振る。40% 等速 / 40% 半速 / 20% 倍速 (Issue #2)
+    const r=Math.random();
+    const rate = r<.4 ? 1 : r<.8 ? .5 : 2;
+    try{ if(pl.setPlaybackRate) pl.setPlaybackRate(rate); }catch(_){ }
     try{ pl.mute(); pl.playVideo(); }catch(_){ }
     await new Promise(r=>setTimeout(r,700));   // 絵が出るのを少し待ってから重ねる
     document.getElementById('vid'+next).classList.add('on');
