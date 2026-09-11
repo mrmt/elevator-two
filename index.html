@@ -547,6 +547,7 @@ ja:{
   'yt.needkey':'キーを入れると背景に動画が流れる',
   'yt.searching':'探している…',
   'yt.none':'このシーンでは見つからなかった',
+  'yt.reuse':'このシーンでは見つからず、前のシーンの動画を流している',
   'yt.error':'検索できなかった (キーかクォータを確認)',
   'yt.license':'CC BY',
   'pad.yy':'陰陽','pad.density':'密度','pad.bpm':'BPM','pad.bar':'小節',
@@ -607,6 +608,7 @@ en:{
   'yt.needkey':'Enter a key to show video behind the pad',
   'yt.searching':'searching…',
   'yt.none':'nothing found for this scene',
+  'yt.reuse':'nothing found for this scene; keeping the previous one',
   'yt.error':'search failed (check the key or quota)',
   'yt.license':'CC BY',
   'pad.yy':'yin-yang','pad.density':'density','pad.bpm':'BPM','pad.bar':'bar',
@@ -742,7 +744,8 @@ for(const k in P){ target[k]=P[k].def; current[k]=P[k].def; }
    draw() と ResizeObserver がこれらを見るので、それらより前に宣言しておく。
    後ろで let すると、初回の draw() が一時的死角に入って IIFE ごと落ちる */
 let ytKey='', videoOn=false, ytReady=false, ytPlayers=[null,null], ytLayer=0,
-    ytList=[], ytPos=0, ytSceneId=null, ytBusy=false, ytFailed=false, ytLastId=null;
+    ytList=[], ytPos=0, ytSceneId=null, ytBusy=false, ytFailed=false, ytLastId=null,
+    ytLastList=[];
 
 let glide=5;         // 秒。目標に到達するおおよその時間
 let volume=80;
@@ -3185,7 +3188,8 @@ function ytLadder(sc){
     {q:full, long:true},                                   // そのまま
     {q:full, long:false},                                  // 長さの条件を外す
     {q:[name,...extra.slice(0,2),YT_COMMON].join(' '), long:false},   // 語を半分に
-    {q:[name,YT_COMMON].join(' '), long:false},            // シーン名だけに
+    {q:[name,YT_COMMON].join(' '), long:false},            // シーン名 + footage
+    {q:name, long:false},                                  // シーン名だけに
   ];
 }
 
@@ -3301,7 +3305,16 @@ async function ytEnsureList(){
   ytNote('yt.searching');
   try{
     ytList=await ytSearch(sc);
-    ytNote(ytList.length?null:'yt.none');
+    if(ytList.length){
+      ytLastList=ytList;          // 次に空振りしたときの受け皿
+      ytNote(null);
+    }else if(ytLastList.length){
+      // このシーンでは見つからなかった。背景が止まるよりは前の一覧を流し続ける
+      ytList=ytLastList;
+      ytNote('yt.reuse');
+    }else{
+      ytNote('yt.none');
+    }
   }catch(e){
     ytFailed=true; ytNote('yt.error');
   }
@@ -3359,6 +3372,13 @@ function setVideo(on){
   }else{
     ytFailed=false;
     ytNote(null);
+    // 「見つからなかった」という記録は捨てる。off/on が探し直しの手段になる
+    try{
+      const c=ytCache(); let dirty=false;
+      for(const k in c) if(!c[k].items.length){ delete c[k]; dirty=true; }
+      if(dirty) localStorage.setItem(YT_CACHE_STORE,JSON.stringify(c));
+    }catch(_){ }
+    ytSceneId=null;
     ytSwap();
   }
 }

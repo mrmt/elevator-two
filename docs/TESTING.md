@@ -65,13 +65,13 @@ npm test
 検索語は `index.html` の `SCENE_QUERY` から読むので、二重管理にはならない。
 
 ```
-./tools/yt-probe.sh <APIキー>            全14シーンの件数
-./tools/yt-probe.sh <APIキー> submerge   1シーンだけ、題名と動画IDまで
-./tools/yt-probe.sh --dry-run            叩かずにURLだけ
+./tools/yt-probe.sh <APIキー>             全シーンを、当たった段まで試す
+./tools/yt-probe.sh <APIキー> jubilee     1シーンだけ、各段の件数と題名を出す
+./tools/yt-probe.sh --dry-run [シーン]    叩かずに段取りだけ出す
 ```
 
-0件のシーンでは、長さの条件 (`videoDuration=long`) を外した場合の件数も併せて出る。
-在庫が薄いシーンが多いようなら `long` を `medium` に緩めるのが次の手 (D-33)。
+アプリと同じ5段の段取り (D-45) を上から試し、件数が出た段で止める。
+どのシーンがどの段で当たるか、あるいは全段空振りするかが分かる。
 
 **クォータに注意。** 検索 (`search.list`) は1回100単位、既定の上限は1日1万単位。
 14シーンを一巡すると1400単位使う。何度も試すときはシーンを絞ること。
