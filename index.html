@@ -1715,15 +1715,22 @@ function sparkNote(time,midi,vel){
   const pn=ctx.createStereoPanner(); pn.pan.value=rand(-.2,.2);
   nodes.push(sum,pn);
 
-  // 全基の detune へ共通で掛ける揺らぎ。深さは1音ごとに引き直す
-  const lfo=ctx.createOscillator(), dep=ctx.createGain();
-  lfo.type='sine'; lfo.frequency.value=rand(5,8); dep.gain.value=rand(6,22);
-  lfo.connect(dep);
-  nodes.push(lfo,dep);
+  /* 全基の detune へ共通で掛ける揺らぎ。深さは1音ごとに引き直す。
+     速さの違う2本を足して、うねりが周期的に揃わないようにする */
+  const dep=ctx.createGain(); dep.gain.value=1;
+  const lfos=[];
+  for(const [lo,hi,amt] of [[4,9,1],[.7,2.3,.55]]){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.value=rand(lo,hi); g.gain.value=rand(16,44)*amt;
+    o.connect(g).connect(dep);
+    lfos.push(o); nodes.push(o,g);
+  }
+  nodes.push(dep);
 
-  // 鋸2基 + 矩形1基。矩形は少し引いて芯だけ足す
-  const d1=rand(7,12);
-  for(const [type,det,lv] of [['sawtooth',-d1,.5],['sawtooth',d1,.5],['square',rand(-5,5),.3]]){
+  // 鋸2基 + 矩形1基。矩形は少し引いて芯だけ足す。
+  // デチューンを広めに取って、重なりを濁らせる
+  const d1=rand(13,24);
+  for(const [type,det,lv] of [['sawtooth',-d1,.5],['sawtooth',d1,.5],['square',rand(-16,16),.3]]){
     const o=ctx.createOscillator(), g=ctx.createGain();
     o.type=type; o.frequency.value=f; o.detune.value=det;
     dep.connect(o.detune);
@@ -1751,7 +1758,7 @@ function sparkNote(time,midi,vel){
   nodes.push(amp);
 
   sum.connect(fl).connect(amp).connect(pn).connect(sparkBus);
-  lfo.start(time); lfo.stop(time+dec+.06);
+  for(const o of lfos){ o.start(time); o.stop(time+dec+.06); }
   for(const n of nodes) disposeAt(n,time+dec+.14);
 }
 
@@ -1947,9 +1954,10 @@ function apply(){
     delayNodes.tapR.d.delayTime.setTargetAtTime(sd*5,tm,1.2);
     delayNodes.tapL.fb.gain.setTargetAtTime(.28+c.space*.34+(dubbing?.22:0),tm,T);
     delayNodes.tapR.fb.gain.setTargetAtTime(.24+c.space*.32+(dubbing?.22:0),tm,T);
+    // 出力も dub (D-49) が奪う。ここが dub の要なので取り合いにしない
+    delayNodes.tapL.o.gain.setTargetAtTime(dlyOutL(),tm,T);
+    delayNodes.tapR.o.gain.setTargetAtTime(dlyOutR(),tm,T);
   }
-  delayNodes.tapL.o.gain.setTargetAtTime(.18+c.space*.5,tm,T);
-  delayNodes.tapR.o.gain.setTargetAtTime(.16+c.space*.45,tm,T);
   build.drumSends.dly.gain.setTargetAtTime(.12+c.space*.35+(dubbing?.35:0),tm,T);
   build.drumSends.rev.gain.setTargetAtTime(.15+c.space*.5,tm,T);
 
@@ -2521,6 +2529,10 @@ function makeFill(bar){
 }
 
 // いま鳴っているシーンぶんを引き直す。onBar() の頭で呼ぶ
+// ディレイの出力の素の値。apply() と dub (D-49) の両方が使う
+const dlyOutL = () => .18+current.space*.5;
+const dlyOutR = () => .16+current.space*.45;
+
 /* ---- ダブ (D-49) ----
    1小節だけ、ドラムを落として全体をディレイに放り込み、
    小節の終わりのオカズで戻す。electro funk のシーンで32小節ごとに30%、
@@ -2560,16 +2572,29 @@ function fireDub(time){
   const t0=time+dubStart*sw;     // ここから落ちる
   const t1=time+barSec;          // 小節の終わりで戻す
 
-  // ディレイは左右とも8分か付点8分に揃える。返しが1小節ぶん残る深さにする
+  /* ディレイは左右とも8分か付点8分に揃える。
+     ここが dub の要なので、フィードバックをほぼ 1 まで上げて返しを減らさず、
+     出力も上げていって、鳴っているあいだ次第に大きくなるようにする。
+     そのままでは収まらないので、**小節末か次の小節の1拍終わりで切って落とす** */
   const dt=(Math.random()<.5 ? 2 : 3)*sw;
-  for(const tap of [delayNodes.tapL,delayNodes.tapR]){
+  const cut = Math.random()<.5 ? t1 : t1+sw*4;   // 小節末 / 次の小節の1拍終わり
+  const back = cut+dt*1.2;                       // 溜まったぶんを吐かせてから戻す
+  for(const [tap,base] of [[delayNodes.tapL,dlyOutL],[delayNodes.tapR,dlyOutR]]){
     tap.d.delayTime.cancelScheduledValues(t0);
     tap.d.delayTime.setTargetAtTime(dt,t0,.04);
+    // フィードバック: 返しがほとんど減らない深さまで上げる
     tap.fb.gain.cancelScheduledValues(t0);
-    tap.fb.gain.setValueAtTime(.6,t0);
-    // 小節が終わってからも半小節かけて引く。返しが次の小節へ鳴り残る
-    tap.fb.gain.setValueAtTime(.6,t1);
-    tap.fb.gain.linearRampToValueAtTime(.4,t1+barSec*.5);
+    tap.fb.gain.setValueAtTime(.82,t0);
+    tap.fb.gain.linearRampToValueAtTime(1.02,cut);
+    tap.fb.gain.setValueAtTime(0,cut);           // 切る。ここで回りが止まる
+    // 出力: 素の2倍から入り、切る手前まで上がり続ける
+    tap.o.gain.cancelScheduledValues(t0);
+    tap.o.gain.setTargetAtTime(base()*2,t0,.02);
+    tap.o.gain.setValueAtTime(base()*2,t0+.06);
+    tap.o.gain.linearRampToValueAtTime(base()*3.2,cut);
+    tap.o.gain.setValueAtTime(0,cut);            // 余韻を残さず落とす
+    tap.o.gain.setValueAtTime(0,back);
+    tap.o.gain.linearRampToValueAtTime(base(),back+.05);
   }
   // 送りを上げて全トラックをディレイに乗せる
   dlySend.gain.cancelScheduledValues(t0);
@@ -2581,7 +2606,7 @@ function fireDub(time){
   f.setTargetAtTime(600,t0,.02);
   f.setTargetAtTime(20000,t1,.06);
 
-  evDelayUntil=t1+barSec*.5;   // apply() との取り合いを避ける
+  evDelayUntil=back+.06;   // apply() との取り合いを避ける
 }
 
 /* ---- キラキラのリフの出現 (D-48) ----
@@ -2608,10 +2633,10 @@ function planSpark(bar){
   if(Math.random()>=p) return;
   sparkAt = bar + (Math.random()<.62 ? 3 : 1);     // 4小節め寄り、たまに2小節め
   // 旋律は和音の構成音だけで作る。順次進行を主に、2割ほど跳ぶ。
-  // 調と度数で和音の位置が動くので、8フィートの音域へ畳んでから使う
-  const tones=[...new Set(chordNotes(60).map(n=>{
-    while(n<58) n+=12;
-    while(n>77) n-=12;
+  // 調と度数で和音の位置が動くので、4フィートの音域へ畳んでから使う
+  const tones=[...new Set(chordNotes(72).map(n=>{
+    while(n<70) n+=12;
+    while(n>89) n-=12;
     return n;
   }))].sort((a,b)=>a-b);
   const n=3+Math.floor(Math.random()*3);           // 4分音符3〜5個
