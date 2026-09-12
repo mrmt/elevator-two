@@ -2509,12 +2509,12 @@ let dubAt=-1, dubBar=-1, dubStart=0;
 
 function planDub(bar){
   // 指定があるときは周期も4小節まで詰めて、シーンの種類も問わない
-  const every = forcedDub===null ? 32 : 4;
+  const every = forcedDub===null ? 8 : 4;
   if(bar%every!==0 || phrase==='break' || pendingScene>=0) return;
   const p = forcedDub!==null ? forcedDub
-          : SCENES[sceneIdx].group==='funk' ? .30 : .03;
+          : SCENES[sceneIdx].group==='funk' ? .50 : .20;
   if(Math.random()>=p) return;
-  // 32小節の中から4小節区間をひとつ引き、その4小節めか2小節めに置く
+  // 判定した範囲から4小節区間をひとつ引き、その4小節めか2小節めに置く
   const blk=Math.floor(Math.random()*(every/4));
   dubAt = bar + blk*4 + (Math.random()<.6 ? 3 : 1);
 }
