@@ -1038,7 +1038,7 @@ function buildHarmony(){
 
   // ---- キラキラのリフ回路 (D-48) ----
   // たまにしか鳴らない装飾。コーラスはジャズ回路と同じ作りで、量を多めに取る
-  sparkBus=ctx.createGain(); sparkBus.gain.value=1.5;
+  sparkBus=ctx.createGain(); sparkBus.gain.value=.75;
   sparkOut=ctx.createGain(); sparkOut.gain.value=1;
   sparkBus.connect(sparkOut);                 // 原音
   for(const [dt,rate,pan] of [[.0058,.51,-.75],[.0089,.79,.75]]){
