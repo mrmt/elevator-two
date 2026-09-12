@@ -1759,8 +1759,8 @@ function sparkNote(time,midi,vel){
 
   /* FM のベルを重ねる。非整数比で変調すると倍音が整数列から外れて金属質になる。
      ローパスを通さず VCA の後ろへ直に入れる。閉じてしまうと芯が消えるため。
-     減衰は鋸・矩形より長めに取って、消えぎわに響きだけ残す */
-  const bellDec=Math.min(dec*1.8,.5);
+     減衰は鋸・矩形よりだいぶ長く取って、消えぎわに響きだけ残す */
+  const bellDec=Math.min(dec*2.7,.75);
   const cf=f*2;                                 // 1オクターブ上を芯にする
   const car=ctx.createOscillator(), mod=ctx.createOscillator(),
         mg=ctx.createGain(), bg=ctx.createGain();
@@ -1772,7 +1772,7 @@ function sparkNote(time,midi,vel){
   mg.gain.exponentialRampToValueAtTime(Math.max(cf*.12,1),time+bellDec*.5);
   mod.connect(mg).connect(car.frequency);
   bg.gain.setValueAtTime(.0001,time);
-  bg.gain.exponentialRampToValueAtTime(Math.max(vel*.16,.0002),time+.002);
+  bg.gain.exponentialRampToValueAtTime(Math.max(vel*.112,.0002),time+.002);
   bg.gain.exponentialRampToValueAtTime(.0001,time+bellDec);
   car.connect(bg).connect(pn);
   for(const o of [car,mod]){ o.start(time); o.stop(time+bellDec+.06); }
@@ -2599,7 +2599,7 @@ function fireDub(time){
      出力も上げていって、鳴っているあいだ次第に大きくなるようにする。
      そのままでは収まらないので、**小節末か次の小節の1拍終わりで切って落とす** */
   const dt=(Math.random()<.5 ? 2 : 3)*sw;
-  const cut = Math.random()<.5 ? t1 : t1+sw*4;   // 小節末 / 次の小節の1拍終わり
+  const cut = Math.random()<.75 ? t1 : t1+sw*4;  // 小節末 (3/4) / 次の小節の1拍終わり (1/4)
   const back = cut+dt*1.2;                       // 溜まったぶんを吐かせてから戻す
   for(const [tap,base] of [[delayNodes.tapL,dlyOutL],[delayNodes.tapR,dlyOutR]]){
     tap.d.delayTime.cancelScheduledValues(t0);
@@ -2607,7 +2607,7 @@ function fireDub(time){
     // フィードバック: 返しがほとんど減らない深さまで上げる
     tap.fb.gain.cancelScheduledValues(t0);
     tap.fb.gain.setValueAtTime(.82,t0);
-    tap.fb.gain.linearRampToValueAtTime(1.02,cut);
+    tap.fb.gain.linearRampToValueAtTime(1.08,cut);
     tap.fb.gain.setValueAtTime(0,cut);           // 切る。ここで回りが止まる
     // 出力: 素の2倍から入り、切る手前まで上がり続ける
     tap.o.gain.cancelScheduledValues(t0);
