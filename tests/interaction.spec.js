@@ -58,31 +58,13 @@ test('シーンは14種すべて並ぶ', async ({ page, isMobile }) => {
   await expect(page.locator('#scenes .group')).toHaveCount(4);
 });
 
-test('テーマを切り替えると見た目が変わり、次に開いても保たれる', async ({ page, isMobile }) => {
-  // D-37。3つのテーマがあり、それぞれ背景色が違う
-  if (isMobile) await page.locator('.tab[data-tab="sound"]').click();
-  await expect(page.locator('.themebtn')).toHaveCount(3);
-  await expect(page.locator('.themebtn').first()).toHaveAttribute('aria-pressed', 'true');
-
-  const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  const seen = new Set([await bg()]);
-
-  for (const [i, name] of [[1, 'te'], [2, 'ek']]) {
-    await page.locator('.themebtn').nth(i).click();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', name);
-    await expect(page.locator('.themebtn').nth(i)).toHaveAttribute('aria-pressed', 'true');
-    seen.add(await bg());
-  }
-  expect(seen.size).toBe(3);
-
-  // 選んだテーマは保たれる
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'ek');
-
-  // 既定へ戻すと属性そのものが外れる
-  if (isMobile) await page.locator('.tab[data-tab="sound"]').click();
-  await page.locator('.themebtn').first().click();
+test('見た目は EK 固定で、切り替えは無い', async ({ page }) => {
+  // D-37。テーマの切り替えは廃止した (2026-09-12)
+  await expect(page.locator('.themebtn')).toHaveCount(0);
   expect(await page.getAttribute('html', 'data-theme')).toBeNull();
+  // EK の漆黒の下地が既定で当たっている
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(bg).toBe('rgb(8, 8, 10)');
 });
 
 test('大きな再生ボタンがXYパッドの中央に出る', async ({ page, isMobile }) => {

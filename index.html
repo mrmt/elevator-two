@@ -7,26 +7,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ELEVATOR TWO</title>
 <style>
+  /* ダーク & サイバネティクス (D-37)。漆黒の筐体に黄色のアクセント */
   :root{
-    /* one の海の色に対し、two はより暗く青い夜の側へ寄せる */
-    --sea-top:#1A2430;
-    --sea-mid:#131C27;
-    --sea-bot:#0B121B;
-    --panel:rgba(255,255,255,.055);
-    --panel-hi:rgba(255,255,255,.11);
-    --line:rgba(226,236,242,.19);
-    --ink:#E7E2CE;
-    --dim:rgba(214,226,232,.62);
-    --amber:#D8A340;
-    --scope:rgba(216,163,64,.7);
-    --disp:'Futura','Avenir Next Condensed','Helvetica Neue',sans-serif;
+    --bg:#08080A;
+    --panel:rgba(255,255,255,.045);
+    --panel-hi:rgba(255,255,255,.1);
+    --line:rgba(255,255,255,.16);
+    --ink:#F4F4EE;
+    --dim:rgba(244,244,238,.5);
+    --amber:#FFE20A;
+    --scope:rgba(255,226,10,.9);
+    --disp:'Helvetica Neue','Arial Narrow',sans-serif;
     --data:'Menlo','Monaco',monospace;
+    --pad-a:#0C0C0E;
+    --pad-b:#000000;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
-    background:var(--sea-mid);
-    background-image:linear-gradient(180deg,var(--sea-top) 0%,var(--sea-mid) var(--sea-split,52%),var(--sea-bot) 100%);
+    background:var(--bg);
     color:var(--ink);
     font-family:var(--disp);
     -webkit-font-smoothing:antialiased;
@@ -318,116 +317,43 @@
      以下の3つは色と字面、それに各テーマ固有の作り込みを重ねる。
      ============================================================ */
 
-  /* ---- TE: ミニマル & インダストリアル ----
-     アルミ削り出しの筐体。等間隔グリッドと極細の罫線、
-     工業用の字面に原色のアクセントを要所だけ */
-  html[data-theme="te"]{
-    --sea-top:#EDECE9; --sea-mid:#E3E2DE; --sea-bot:#D7D6D1;
-    --panel:rgba(20,22,24,.035); --panel-hi:rgba(20,22,24,.08);
-    --line:rgba(20,22,24,.26);
-    --ink:#1B1D1F; --dim:rgba(27,29,31,.58);
-    --amber:#F25C05; --accent2:#FFC400; --accent3:#00A6B8;
-    --disp:'Menlo','Monaco',monospace;
-    --scope:rgba(242,92,5,.85);
-    --pad-a:#CFCEC9; --pad-b:#B9B8B2;
-  }
-  html[data-theme="te"] body{background-image:linear-gradient(180deg,var(--sea-top),var(--sea-bot))}
-  /* 等間隔のグリッド。削り出しの面に引いた罫線に見えるよう、ごく薄く */
-  html[data-theme="te"] section{
-    background:
-      repeating-linear-gradient(0deg,transparent 0 23px,rgba(20,22,24,.045) 23px 24px),
-      repeating-linear-gradient(90deg,transparent 0 23px,rgba(20,22,24,.045) 23px 24px),
-      rgba(255,255,255,.42);
-  }
-  html[data-theme="te"] header,
-  html[data-theme="te"] footer{background:rgba(255,255,255,.5)}
-  html[data-theme="te"] .eyebrow{
-    color:var(--ink);border-bottom:1px solid var(--line);padding-bottom:.25rem;
-    font-weight:600;
-  }
-  /* 液晶風。表示部だけ階調を落とした面にして、細い横縞を掛ける */
-  html[data-theme="te"] .prog,
-  html[data-theme="te"] .overlay{
-    background-image:repeating-linear-gradient(0deg,rgba(20,22,24,.05) 0 1px,transparent 1px 3px);
-  }
-  html[data-theme="te"] .prog{
-    background-color:rgba(180,186,176,.5);border:1px solid var(--line);padding:.3rem .4rem;
-  }
-  html[data-theme="te"] .prog b{color:#12240E}
-  html[data-theme="te"] .prog .ev{color:var(--amber)}
-  html[data-theme="te"] .overlay b{color:rgba(27,29,31,.34)}
-  html[data-theme="te"] .overlay .k{color:rgba(27,29,31,.42)}
-  html[data-theme="te"] .steps i{background:rgba(20,22,24,.16)}
-  html[data-theme="te"] .steps i.hat{background:var(--accent3)}
-  html[data-theme="te"] .steps i.on{background:var(--accent2)}
-  html[data-theme="te"] .steps i.now{background:var(--amber);box-shadow:none}
-  html[data-theme="te"] .toggle[aria-pressed="true"] .lamp{background:var(--amber);box-shadow:none}
-  html[data-theme="te"] input[type=range]::-webkit-slider-thumb{background:var(--ink)}
-  html[data-theme="te"] input[type=range]:hover::-webkit-slider-thumb{background:var(--amber)}
-  html[data-theme="te"] .scenebtn[aria-pressed="true"]{color:var(--amber);border-left-color:var(--amber)}
-  html[data-theme="te"] #tip{background:#F2F1EE;color:var(--ink)}
-  html[data-theme="te"] .vcap{color:rgba(27,29,31,.7);text-shadow:0 1px 6px rgba(255,255,255,.8)}
-
-  /* ---- EK: ダーク & サイバネティクス ----
-     漆黒の筐体に単色の高輝度表示。16個のキースイッチ、
-     シルク印刷のように囲まれた機能ブロック */
-  html[data-theme="ek"]{
-    --sea-top:#0A0A0B; --sea-mid:#08080A; --sea-bot:#050506;
-    --panel:rgba(255,255,255,.045); --panel-hi:rgba(255,255,255,.1);
-    --line:rgba(255,255,255,.16);
-    --ink:#F4F4EE; --dim:rgba(244,244,238,.5);
-    --amber:#FFE20A; --accent2:#FFE20A; --accent3:#FFFFFF;
-    --disp:'Helvetica Neue','Arial Narrow',sans-serif;
-    --scope:rgba(255,226,10,.9);
-    --pad-a:#0C0C0E; --pad-b:#000000;
-  }
-  html[data-theme="ek"] body{background-image:none;background:#08080A}
-  html[data-theme="ek"] header,
-  html[data-theme="ek"] footer{background:#0B0B0D}
+  header,
+  footer{background:#0B0B0D}
   /* パネルのシルク印刷。各セクションを独立したモジュールとして細い線で囲む */
-  html[data-theme="ek"] section{background:#0B0B0D;padding:.7rem .8rem .9rem}
-  html[data-theme="ek"] section>.eyebrow{
+  section{background:#0B0B0D;padding:.7rem .8rem .9rem}
+  section>.eyebrow{
     border:1px solid var(--line);border-left:3px solid var(--amber);
     padding:.22rem .4rem;font-weight:700;letter-spacing:.24em;color:var(--ink);
   }
-  html[data-theme="ek"] .seqhead .eyebrow{border:1px solid var(--line);border-left:3px solid var(--amber);padding:.22rem .4rem}
-  html[data-theme="ek"] #params,
-  html[data-theme="ek"] #clockparams,
-  html[data-theme="ek"] #scenes,
-  html[data-theme="ek"] .prog{
+  .seqhead .eyebrow{border:1px solid var(--line);border-left:3px solid var(--amber);padding:.22rem .4rem}
+  #params,
+  #clockparams,
+  #scenes,
+  .prog{
     border:1px solid var(--line);padding:.5rem .55rem;margin-top:.5rem;
   }
   /* 16個の正方形キースイッチ。点いている位置はバックライト風に光る */
-  html[data-theme="ek"] .steps{
+  .steps{
     height:auto;gap:3px;border-bottom:none;padding:2px 0;align-items:stretch;
   }
-  html[data-theme="ek"] .steps i{
+  .steps i{
     height:18px !important;border-radius:2px;
     background:#141416;border:1px solid rgba(255,255,255,.13);
   }
-  html[data-theme="ek"] .steps i.hat{background:#1D2226}
-  html[data-theme="ek"] .steps i.on{background:#2A2A16;border-color:rgba(255,226,10,.4)}
-  html[data-theme="ek"] .steps i.now{
+  .steps i.hat{background:#1D2226}
+  .steps i.on{background:#2A2A16;border-color:rgba(255,226,10,.4)}
+  .steps i.now{
     background:var(--amber);border-color:var(--amber);
     box-shadow:0 0 10px rgba(255,226,10,.75),inset 0 0 6px rgba(255,255,255,.5);
   }
-  html[data-theme="ek"] .lamp{border-radius:2px;width:9px;height:9px}
-  html[data-theme="ek"] .toggle[aria-pressed="true"] .lamp{box-shadow:0 0 9px var(--amber)}
-  html[data-theme="ek"] input[type=range]::-webkit-slider-thumb{background:var(--amber);width:7px;height:16px;margin-top:-8px}
-  html[data-theme="ek"] .tbtn[data-on="1"]{background:var(--amber);color:#08080A}
-  html[data-theme="ek"] .overlay b{color:rgba(244,244,238,.30)}
-  html[data-theme="ek"] .scene{color:var(--amber)}
-  html[data-theme="ek"] #tip{background:#101012}
+  .lamp{border-radius:2px;width:9px;height:9px}
+  .toggle[aria-pressed="true"] .lamp{box-shadow:0 0 9px var(--amber)}
+  input[type=range]::-webkit-slider-thumb{background:var(--amber);width:7px;height:16px;margin-top:-8px}
+  .tbtn[data-on="1"]{background:var(--amber);color:#08080A}
+  .overlay b{color:rgba(244,244,238,.30)}
+  .scene{color:var(--amber)}
+  #tip{background:#101012}
 
-  /* ---- テーマの選択 ---- */
-  #themes{display:flex;gap:.3rem;margin-bottom:.2rem}
-  .themebtn{
-    flex:1;border:1px solid var(--line);background:var(--panel);
-    font-size:.62rem;letter-spacing:.16em;padding:.32rem 0;color:var(--dim);
-    transition:color .16s,background .16s,border-color .16s;
-  }
-  .themebtn:hover{color:var(--ink);background:var(--panel-hi)}
-  .themebtn[aria-pressed="true"]{color:var(--amber);border-color:var(--amber)}
 </style>
 </head>
 <body>
@@ -496,8 +422,6 @@
   </section>
 
   <section id="tab-sound">
-    <div class="eyebrow" data-i18n="section.theme">見た目</div>
-    <div id="themes"></div>
     <div class="seqhead"><div class="eyebrow" style="margin:0" data-i18n="section.params">パラメータ</div></div>
     <div style="margin-top:.8rem"></div>
     <div id="params"></div>
@@ -536,11 +460,7 @@ ja:{
   'tip.next':'いまのシーンを打ち切って次へ進む',
   'tab.scene':'シーン','tab.pad':'XYパッド','tab.sound':'音作り',
   'section.scene':'シーン','section.next':'次へ','section.pad':'XYパッド — ドラッグで目標を移動',
-  'section.params':'パラメータ','section.clock':'クロック','section.bg':'背景','section.theme':'見た目',
-  'theme.sea':'既定','theme.te':'TE','theme.ek':'EK',
-  'tip.theme.sea':'elevator-one から引き継いだ海の色',
-  'tip.theme.te':'ミニマル & インダストリアル。アルミ削り出しの面に等間隔グリッドと原色のアクセント',
-  'tip.theme.ek':'ダーク & サイバネティクス。漆黒の筐体、16個のキースイッチ、囲まれた機能ブロック',
+  'section.params':'パラメータ','section.clock':'クロック','section.bg':'背景',
   'param.bgvideo':'動画を流す','param.ytkey':'YouTube APIキー',
   'tip.bgvideo':'XYパッドの背景に、いまのシーンの英語名で探した動画を音無しで流す。4小節ごとに差し替わる',
   'tip.ytkey':'YouTube Data API のキー。ブラウザにだけ保存され、外部へは送らない。空にすると動画は止まる',
@@ -597,11 +517,7 @@ en:{
   'tip.next':'Cut the current scene short and move to the next one',
   'tab.scene':'scene','tab.pad':'XY pad','tab.sound':'sound',
   'section.scene':'scene','section.next':'next','section.pad':'XY pad — drag to move the target',
-  'section.params':'parameters','section.clock':'clock','section.bg':'background','section.theme':'look',
-  'theme.sea':'default','theme.te':'TE','theme.ek':'EK',
-  'tip.theme.sea':'The sea palette inherited from elevator-one',
-  'tip.theme.te':'Minimal & industrial. Machined aluminium, an even grid, primary-colour accents.',
-  'tip.theme.ek':'Dark & cybernetic. Black chassis, sixteen key switches, blocks boxed like silkscreen.',
+  'section.params':'parameters','section.clock':'clock','section.bg':'background',
   'param.bgvideo':'video','param.ytkey':'YouTube API key',
   'tip.bgvideo':'Plays muted video behind the XY pad, found by the current scene name. Swaps every 4 bars.',
   'tip.ytkey':'Your YouTube Data API key. Stored in this browser only; never sent anywhere else. Clear it to stop the video.',
@@ -611,15 +527,15 @@ en:{
   'yt.reuse':'nothing found for this scene; keeping the previous one',
   'yt.error':'search failed (check the key or quota)',
   'yt.license':'CC BY',
-  'pad.yy':'yin-yang','pad.density':'density','pad.bpm':'BPM','pad.bar':'bar',
-  'pad.yin':'yin','pad.yang':'yang','pad.sparse':'sparse','pad.dense':'dense',
-  'prog.phrase':'phrase','prog.event':'event','prog.wave':'yin-yang wave','prog.key':'key',
+  'pad.yy':'dark-bright','pad.density':'density','pad.bpm':'BPM','pad.bar':'bar',
+  'pad.yin':'dark','pad.yang':'bright','pad.sparse':'sparse','pad.dense':'dense',
+  'prog.phrase':'phrase','prog.event':'event','prog.wave':'dark-bright wave','prog.key':'key',
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
   'mode2.break':'break','mode2.morph':'morph','mode2.mix':'mix',
   'mode3.chop':'chop','noise.label':'noise','bass.label':'bass','bass.phaser':'+phaser','bass.wobble':'+wobble','bass.mod':'+vibrato',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
-  'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
+  'group.stab':'stab / dark','group.sustain':'sustain / bright','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
   'param.glitch':'glitch','param.evolution':'evolution','param.mutate':'mutate','param.bpm':'BPM','param.glide':'glide',
   'tip.volume':'Output level',
@@ -638,7 +554,7 @@ en:{
   'scene.submerge.name':'submerge','scene.submerge.desc':'The deepest point. Kick, sub bass and stabs only; delay near self-oscillation.',
   'scene.moss.name':'moss','scene.moss.desc':'Mid-range noise percussion comes in. Dub-out phrases appear most often here.',
   'scene.drowse.name':'drowse','scene.drowse.desc':'The slowest scene. Loose ii-V, electric piano out front.',
-  'scene.frost.name':'frost','scene.frost.desc':'High glitches and metallic percussion. The cold side of yin.',
+  'scene.frost.name':'frost','scene.frost.desc':'High glitches and metallic percussion. The cold side of the dark.',
   'scene.pulse.name':'pulse','scene.pulse.desc':'Stronger kick, bass filter sweeping wide. Yin, but it moves.',
   'scene.glass.name':'glass','scene.glass.desc':'Short tension chords, stabbed. Halfway between jazz and dub.',
   'scene.dusk.name':'dusk','scene.dusk.desc':'maj9 chords and bossa syncopation. Colour takes the lead.',
@@ -3196,30 +3112,13 @@ document.getElementById('next').addEventListener('click',e=>{
   setTimeout(()=>b.setAttribute('aria-pressed','false'),260);
 });
 
-/* ---- テーマ (D-37) ---- */
-const THEMES=['sea','te','ek'];
-const THEME_STORE='elevator-two:theme';
-let theme='sea', themePad={a:'',b:''};
-try{ const v=localStorage.getItem(THEME_STORE); if(THEMES.includes(v)) theme=v; }catch(_){ }
-
-const themesEl=document.getElementById('themes');
-const themeBtns={};
-for(const id of THEMES){
-  const b=document.createElement('button');
-  b.className='themebtn'; b.setAttribute('aria-pressed','false');
-  b.dataset.i18n=`theme.${id}`; b.dataset.i18nTip=`tip.theme.${id}`;
-  b.addEventListener('click',()=>setTheme(id));
-  themesEl.appendChild(b); themeBtns[id]=b;
-}
-
-function setTheme(id){
-  theme=THEMES.includes(id)?id:'sea';
-  // 既定は属性を付けない。CSS の :root がそのまま効く
-  if(theme==='sea') document.documentElement.removeAttribute('data-theme');
-  else document.documentElement.dataset.theme=theme;
-  for(const k of THEMES) themeBtns[k].setAttribute('aria-pressed',String(k===theme));
-  try{ localStorage.setItem(THEME_STORE,theme); }catch(_){ }
-  // パッドの下地はテーマが持つ。毎フレーム読むと重いのでここで拾っておく
+/* ---- 見た目 (D-37) ----
+   テーマは EK 固定。切り替えは廃止した (2026-09-12)。
+   パッドの下地色 (--pad-a / --pad-b) と波形の色 (--scope) は CSS が持つ。
+   毎フレーム getComputedStyle を呼ぶと重いので、起動時に1度だけ拾う。
+   scopeColorCache の宣言より前にあるので、実行は初期化の列から行う */
+let themePad={a:'',b:''};
+function readLook(){
   const cs=getComputedStyle(document.documentElement);
   themePad={a:cs.getPropertyValue('--pad-a').trim(), b:cs.getPropertyValue('--pad-b').trim()};
   scopeColorCache=cs.getPropertyValue('--scope').trim();
@@ -3744,7 +3643,6 @@ function readout(){
   rD.textContent=current.density.toFixed(2);
   rBPM.textContent=Math.round(bpmNow());
   rBar.textContent=running ? String(barCount-sceneStartBar+1) : '—';
-  document.body.style.setProperty('--sea-split', (34+current.density*34).toFixed(1)+'%');
 }
 
 /* ============================================================
@@ -3994,7 +3892,7 @@ newWavePeriod();
 enterScene(chooseScene());
 pickProg();
 sceneBars=sceneLengthBars();
-setTheme(theme);
+readLook();
 applyI18n();
 showProgress();
 readout();
