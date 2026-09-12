@@ -2129,6 +2129,13 @@ const qsRate=key=>{
   return Number.isFinite(n) ? clamp(n) : 1;
 };
 const forcedSpark=qsRate('spark'), forcedDub=qsRate('dub');
+/* 開発用。?fill=tom / ?fill=snare でオカズの主役を固定する。
+   素のままだとタムが出るまで待つことになり、テストが運と実時間に引きずられる。
+   置き場所 (8小節ごと、小節の後ろ半分) は素のままなので、見ている性質は変わらない */
+const forcedFill=(()=>{
+  const v=QS.get('fill');
+  return ['tom','snare'].includes(v) ? v : null;
+})();
 let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
@@ -2545,7 +2552,9 @@ function makeFill(bar){
   const R=rng(patSeed+bar*131);
   const len=3+Math.floor(R()*8);             // 小節の終わりから3〜10ステップ
   const start=16-len;
-  const kind=R()<.55?'tom':'snare';
+  // 指定があってもここは引いておく。種の消費順が変わると並びごと変わってしまう
+  const drawn=R()<.55?'tom':'snare';
+  const kind=forcedFill||drawn;
   const rest=.12+R()*.34;                    // この回の休符の出やすさ
   let tone=.45+R()*.35;                      // 始まりの音程
   const fill=seq.fill;
@@ -2694,42 +2703,48 @@ function planSpark(bar){
   }
 }
 
-function regenerate(bar){
-  // 変異 (D-7)。当たったときだけ種を引き直し、それまでは同じ並びを繰り返す
-  if(Math.random()<current.mutate*.5) reseedPattern();
-  const fillBar=isFillBar(bar);
-  Object.assign(seq, buildBar(bar,sceneIdx,phrase,patSeed,fillBar));
-  // 疎な小節はフェーザーで補う (D-39)。その判断に使う
+/* ---- ベースの性格を測る ----
+   D-39 (疎ならフェーザー) / D-42 (動かないならフィルタを振る) / D-50 (揺らぎ) の
+   判断材料をここでまとめて出す */
+function measureBass(){
   bassNotes = seq.bass.filter(Boolean).length;
-  // 音程がほとんど動かない小節は、1音ごとにフィルタを揺らして単調さを補う (D-42)
   const bassPitches = new Set(seq.bass.filter(Boolean).map(b=>b.midi)).size;
+  // 音程がほとんど動かない小節は、1音ごとにフィルタを揺らして単調さを補う (D-42)
   bassWobble = bassPitches<=2;
   /* サスティンのある音色で、旋律が単純な小節にだけ揺らぎを掛ける (D-50)。
      タイトな音色は伸びないので掛ける先がない。
      このベースは設計上ほとんどの小節が単純 (音程1つが74%、2つ以下で97%) なので、
      ここは「動きすぎる小節を外す」だけの条件。薄さは9%のほうが担う */
   bassMod = !bassTight && bassPitches>0 && bassPitches<=2 && Math.random()<.09;
+}
+
+/* ---- オカズ (D-20) を置く ---- */
+function placeFill(bar,fillBar){
   seq.fill=new Array(16).fill(null);
-  // 音色はときどき差し替える。基本は鋸波で、たまに別の波形になる
-  if(Math.random()<.25) leadType = Math.random()<.5 ? 'sawtooth' : pick(LEAD_TYPES);
   // 前の小節からはみ出したぶんを先に置く
   if(pendingSpill){
     for(const sp of pendingSpill) seq.fill[sp.i]={v:sp.v, vel:sp.vel, tone:sp.tone};
     pendingSpill=null;
   }
   if(fillBar) makeFill(bar);
+}
 
-  // キラキラのリフ (D-48)。4分音符なので 0/4/8/12 に置き、5音めは次の小節の頭へ
+/* ---- キラキラのリフ (D-48) を置く ----
+   4分音符なので 0/4/8/12 に置き、5音めは次の小節の頭へ回す */
+function placeSpark(bar){
   seq.spark=new Array(16).fill(null);
   if(sparkSpill){ seq.spark[0]=sparkSpill; sparkSpill=null; }
   if(bar===sparkAt && sparkNotes && phrase!=='break'){
     sparkNotes.forEach((nt,i)=>{ if(i<4) seq.spark[i*4]=nt; else sparkSpill=nt; });
     sparkLastTime=ctx.currentTime;
   }
-  if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; }
-  planSpark(bar);
+  if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; }   // 取りこぼしたら捨てる
+  planSpark(bar);                                    // 次を仕込む
+}
 
-  // ダブ (D-49)。開始点以降を抜き、小節の終わりのオカズだけ残す
+/* ---- ダブ (D-49) を置く ----
+   開始点以降を抜き、小節の終わりのオカズだけ残す */
+function placeDub(bar){
   dubBar=-1;
   if(bar===dubAt && phrase!=='break'){
     dubBar=bar; dubAt=-1;
@@ -2745,7 +2760,29 @@ function regenerate(bar){
     makeDubFill(bar);
   }
   if(bar>dubAt) dubAt=-1;   // 取りこぼしたら捨てる
-  planDub(bar);
+  planDub(bar);             // 次を仕込む
+}
+
+/* ---- 装飾を置く ----
+   **順序に意味がある。**
+   1. オカズ  — seq.fill を作る
+   2. リフ    — 他とぶつからない。ここは入れ替えてよい
+   3. ダブ    — オカズを潰して置き直し、他のトラックも間引くので必ず最後 */
+function placeDecorations(bar,fillBar){
+  placeFill(bar,fillBar);
+  placeSpark(bar);
+  placeDub(bar);
+}
+
+function regenerate(bar){
+  // 変異 (D-7)。当たったときだけ種を引き直し、それまでは同じ並びを繰り返す
+  if(Math.random()<current.mutate*.5) reseedPattern();
+  const fillBar=isFillBar(bar);
+  Object.assign(seq, buildBar(bar,sceneIdx,phrase,patSeed,fillBar));
+  measureBass();
+  // 音色はときどき差し替える。基本は鋸波で、たまに別の波形になる
+  if(Math.random()<.25) leadType = Math.random()<.5 ? 'sawtooth' : pick(LEAD_TYPES);
+  placeDecorations(bar,fillBar);
 }
 
 /* ============================================================

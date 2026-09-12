@@ -8,7 +8,11 @@ export default defineConfig({
   fullyParallel: true,
   // 音の検証はメインスレッドで一定間隔にサンプリングするので、
   // 並列度を上げすぎるとポーリングが痩せて測定がぶれる
-  workers: process.env.CI ? 2 : 3,
+  /* 各ワーカーが実時間で音を鳴らすので、上げすぎるとCPUが競合して
+     測定が不安定になる。実測 (10論理コア / 高性能4) では
+     3 → 2.4〜2.7分 失敗0、4 → 1.9〜2.0分 失敗0、6 → 1.4〜1.6分 失敗1。
+     速さと安定の折り合いで 4 にしてある */
+  workers: process.env.CI ? 2 : 4,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   // CI でも list を混ぜる。github reporter は失敗時の注釈しか出さないため、

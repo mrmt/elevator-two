@@ -77,12 +77,12 @@ test('Ladder フィルタが AudioWorklet で動く', async ({ page }) => {
 });
 
 test('重さを上げると低域が増える', async ({ page }) => {
-  test.setTimeout(150000);
+  test.setTimeout(120000);
   // 曙 (daybreak) はベースが16分で動くシーン。
   // 「押し出し」の効きはマスターのコンプに均されて測りにくいので、
   // ベースとキックの量そのものを動かす「重さ」で見る
   await page.locator('.scenebtn').nth(11).click();
-  // スライダーの値は推移時間をかけて効くので、待ち時間ぶんで届くまで短くしておく
+  // スライダーの値は推移時間をかけて効く。最短 (3) にしておくと時定数1秒で届く
   await page.locator('#s_glide').fill('3');
   await page.locator('#play').click();
   await page.waitForTimeout(2000);
@@ -92,8 +92,7 @@ test('重さを上げると低域が増える', async ({ page }) => {
     a.fftSize = 4096;
     const buf = new Uint8Array(a.frequencyBinCount);
     /* 1回の測定で2秒ぶん均す。ベースの並びは小節ごとに変わるので、
-       1小節ぶんしか見ないと差が並びの揺らぎに埋もれる。
-       判定の余裕は2%しかなく、そこを解像できるだけ measurement を長く取る */
+       1小節ぶんしか見ないと差が並びの揺らぎに埋もれる */
     let lo = 0, n = 0;
     for (let k = 0; k < 80; k++) {
       a.getByteFrequencyData(buf);
@@ -104,18 +103,25 @@ test('重さを上げると低域が増える', async ({ page }) => {
     return lo / n / 10;
   });
 
-  // 並びは小節ごとに変わるので、交互に切り替えて複数回測り平均で見る
-  const light = [], heavy = [];
+  /* 軽い側と重い側を続けて測って「対」にする。
+     判定の余裕は2%しかないのに、測定のあいだにシーンもフレーズも進むので、
+     別々に測った平均どうしを比べるとその揺れのほうが大きい。
+     対にすればゆっくりした揺れは分子と分母で打ち消える */
+  const ratio = [];
   for (let round = 0; round < 5; round++) {
     await page.locator('#s_weight').fill('0');
-    await page.waitForTimeout(3000);
-    light.push(await lowBand());
+    await page.waitForTimeout(2500);      // 時定数1秒なので2.5秒で9割方届く
+    const light = await lowBand();
     await page.locator('#s_weight').fill('1');
-    await page.waitForTimeout(3000);
-    heavy.push(await lowBand());
+    await page.waitForTimeout(2500);
+    const heavy = await lowBand();
+    ratio.push(heavy / light);
   }
-  const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
-  expect(mean(heavy)).toBeGreaterThan(mean(light) * 1.02);
+  ratio.sort((a, b) => a - b);
+  // 中央値で見る。外れ値1つで落ちないように
+  expect(ratio[2]).toBeGreaterThan(1.02);
+  // 5往復のうち4往復以上で重い側が上回る
+  expect(ratio.filter(r => r > 1).length).toBeGreaterThanOrEqual(4);
 });
 
 test('ベースが和音のルート音を基本にする', async ({ page }) => {
@@ -165,7 +171,7 @@ test('ベースが和音のルート音を基本にする', async ({ page }) => 
 });
 
 test('並びが切り替わる前の小節にオカズが入る', async ({ page }) => {
-  test.setTimeout(260000);
+  test.setTimeout(90000);
   // D-20。タムは正弦波のピッチ落ちで作るので、予約された周波数を見れば拾える。
   // バスドラムとスネアも正弦なので、そちらの決まった値は除く
   await page.addInitScript(() => {
@@ -181,7 +187,9 @@ test('並びが切り替わる前の小節にオカズが入る', async ({ page 
       return o;
     };
   });
-  await page.goto('/index.html');
+  // ?fill=tom でオカズの主役をタムに固定する。素のままだと55%の抽選待ちになり、
+  // 出るまでの実時間でテストが伸びる。置き場所は素のままなのでここで見る性質は変わらない
+  await page.goto('/index.html?fill=tom');
   await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak
   await page.locator('#s_bpm').fill('140');
   await page.locator('#play').click();
@@ -196,13 +204,10 @@ test('並びが切り替わる前の小節にオカズが入る', async ({ page 
     return sine.filter(([v]) => !common.includes(v)).map(([, t]) => t);
   };
 
-  /* オカズはタム主体かスネア主体かを毎回引き、8小節に一度しか来ない。
-     窓を固定にすると採れるタムが6個しかない回があり、そのときは
-     この後の late / head の比較が数個の差で決まってしまって落ちる。
-     必要な数が集まるまで待つ */
+  // オカズは8小節に一度。140BPM で 8小節 ≒ 13.7秒なので、20個集まるのは2〜3回ぶん
   await page.evaluate(() => { window.__sine.length = 0; });
   let sine = [];
-  for (let waited = 0; waited < 210000; waited += 5000) {
+  for (let waited = 0; waited < 60000; waited += 5000) {
     await page.waitForTimeout(5000);
     sine = await page.evaluate(() => window.__sine);
     if (pickToms(sine).length >= 20) break;
