@@ -2037,7 +2037,7 @@ function apply(){
   // ハーモニー3回路。鳴らすのは基本的にどれかひとつ (D-8)
   if(padBus){
     const cir=circuit(), L=padLayers();
-    padBus.gain.setTargetAtTime((cir==='sustain'?.62:cir==='funk'?.28:0)*(.5+c.density*.5),tm,T*3);
+    padBus.gain.setTargetAtTime((cir==='sustain'?.434:cir==='funk'?.28:0)*(.5+c.density*.5),tm,T*3);
     for(let i=0;i<4;i++){
       // 上の層ほど遅れて出る。剥がすときは速く落とす。
       // 連打のときは、持続音にあたる下2層を止めて代わりに連打が鳴る (D-34)
