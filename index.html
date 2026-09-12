@@ -1772,7 +1772,7 @@ function sparkNote(time,midi,vel){
   mg.gain.exponentialRampToValueAtTime(Math.max(cf*.12,1),time+bellDec*.5);
   mod.connect(mg).connect(car.frequency);
   bg.gain.setValueAtTime(.0001,time);
-  bg.gain.exponentialRampToValueAtTime(Math.max(vel*.112,.0002),time+.002);
+  bg.gain.exponentialRampToValueAtTime(Math.max(vel*.078,.0002),time+.002);
   bg.gain.exponentialRampToValueAtTime(.0001,time+bellDec);
   car.connect(bg).connect(pn);
   for(const o of [car,mod]){ o.start(time); o.stop(time+bellDec+.06); }
