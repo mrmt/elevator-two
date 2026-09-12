@@ -761,6 +761,7 @@ let bpmCenter=125;   // BPM スライダー。シーンの bpm はこの前後�
 let scope=null, scopeBuf=null;   // XYパッドの背景に出す波形 (D-36)
 let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     mixFilter=null, dry=null, revSend=null, revGain=null, dlySend=null, delayNodes=null,
+    dubFilter=null,
     drumBus=null, drumSat=null, drumFilter=null, drumMix=null,
     drumBusB=null, drumFilterB=null, drumMixB=null,
     bassBus=null, bassSum=null, bassPre=null, bassShaper=null, bassLadder=null,
@@ -887,7 +888,13 @@ function build(){
   mixFilter.type='lowpass'; mixFilter.frequency.value=20000; mixFilter.Q.value=.7;
   mixFilter.connect(master);
 
-  dry = ctx.createGain(); dry.gain.value=.9; dry.connect(mixFilter);
+  dry = ctx.createGain(); dry.gain.value=.9;
+  /* dub 専用のローパス (D-49)。原音だけを通す位置に置く。
+     リバーブとディレイの返しは mixFilter へ直に入るので、ここを閉じると
+     原音が消えても返しは生き残る。dub でやりたいことがそのまま経路になる */
+  dubFilter=ctx.createBiquadFilter();
+  dubFilter.type='lowpass'; dubFilter.frequency.value=20000; dubFilter.Q.value=1.4;
+  dry.connect(dubFilter).connect(mixFilter);
 
   // リバーブ
   const conv=ctx.createConvolver();
@@ -1931,12 +1938,13 @@ function apply(){
   // 空間: リバーブとディレイの量。ディレイはテンポに同期させる
   revGain.gain.setTargetAtTime(.12+c.space*.55,tm,T);
   const sd=stepDur();
-  delayNodes.tapL.d.delayTime.setTargetAtTime(sd*3,tm,1.2);    // 付点8分
-  // 右は16分5つ。3と5はどちらも16分のグリッドに乗り、互いに素なので
-  // 返しが拍とずれ続けて dub 的な絡みになる。グリッドから外すと打点が濁る
-  delayNodes.tapR.d.delayTime.setTargetAtTime(sd*5,tm,1.2);
   const dubbing = phrase==='dubout';
+  // dub (D-49) が長さを奪っている間は触らない。ここで書き戻すと返しの間隔が戻ってしまう
   if(tm>evDelayUntil){
+    delayNodes.tapL.d.delayTime.setTargetAtTime(sd*3,tm,1.2);    // 付点8分
+    // 右は16分5つ。3と5はどちらも16分のグリッドに乗り、互いに素なので
+    // 返しが拍とずれ続けて dub 的な絡みになる。グリッドから外すと打点が濁る
+    delayNodes.tapR.d.delayTime.setTargetAtTime(sd*5,tm,1.2);
     delayNodes.tapL.fb.gain.setTargetAtTime(.28+c.space*.34+(dubbing?.22:0),tm,T);
     delayNodes.tapR.fb.gain.setTargetAtTime(.24+c.space*.32+(dubbing?.22:0),tm,T);
   }
@@ -2501,6 +2509,66 @@ function makeFill(bar){
 }
 
 // いま鳴っているシーンぶんを引き直す。onBar() の頭で呼ぶ
+/* ---- ダブ (D-49) ----
+   1小節だけ、ドラムを落として全体をディレイに放り込み、
+   小節の終わりのオカズで戻す。electro funk のシーンで32小節ごとに30%、
+   他のシーンでは極めてまれ。 */
+let dubAt=-1, dubBar=-1, dubStart=0;
+
+function planDub(bar){
+  if(bar%32!==0 || phrase==='break' || pendingScene>=0) return;
+  const p = SCENES[sceneIdx].group==='funk' ? .30 : .03;
+  if(Math.random()>=p) return;
+  // 32小節の中から4小節区間をひとつ引き、その4小節めか2小節めに置く
+  const blk=Math.floor(Math.random()*8);
+  dubAt = bar + blk*4 + (Math.random()<.6 ? 3 : 1);
+}
+
+/* 出口のオカズ。最後の16分4個に置く。
+   makeFill() より振りを大きくし、32分も多めに混ぜる (Issue #3) */
+function makeDubFill(bar){
+  const R=rng(patSeed+bar*577+13);
+  const kind=R()<.5?'tom':'sd';
+  let tone=.3+R()*.5;
+  for(let i=12;i<16;i++){
+    if(R()<.18) continue;                      // ここだけは間引きを浅くする。戻しの合図なので
+    tone = R()<.4 ? clamp(tone+rand(-.7,.7),-.9,.9) : clamp(tone-rand(.05,.4),-.9,.9);
+    const vel=clamp(.45+(i-12)/3*.45+(R()-.5)*.4,.2,1);
+    seq.fill[i] = kind==='tom' ? {v:'tom', vel, tone} : {v:'sd', vel};
+    if(R()<.5) seq.fill[i].sub={vel:vel*.85, tone:clamp(tone+rand(-.5,.5),-.9,.9)};
+  }
+}
+
+/* 音の側の仕掛け。time が要るので onBar() から呼ぶ */
+function fireDub(time){
+  const sw=stepDur(), barSec=sw*16;
+  const t0=time+dubStart*sw;     // ここから落ちる
+  const t1=time+barSec;          // 小節の終わりで戻す
+
+  // ディレイは左右とも8分か付点8分に揃える。返しが1小節ぶん残る深さにする
+  const dt=(Math.random()<.5 ? 2 : 3)*sw;
+  for(const tap of [delayNodes.tapL,delayNodes.tapR]){
+    tap.d.delayTime.cancelScheduledValues(t0);
+    tap.d.delayTime.setTargetAtTime(dt,t0,.04);
+    tap.fb.gain.cancelScheduledValues(t0);
+    tap.fb.gain.setValueAtTime(.6,t0);
+    // 小節が終わってからも半小節かけて引く。返しが次の小節へ鳴り残る
+    tap.fb.gain.setValueAtTime(.6,t1);
+    tap.fb.gain.linearRampToValueAtTime(.4,t1+barSec*.5);
+  }
+  // 送りを上げて全トラックをディレイに乗せる
+  dlySend.gain.cancelScheduledValues(t0);
+  dlySend.gain.setTargetAtTime(2.2,t0,.02);
+  dlySend.gain.setTargetAtTime(1,t1,.05);
+  // 原音だけを閉じる。返しはこのフィルタを通らないので生き残る
+  const f=dubFilter.frequency;
+  f.cancelScheduledValues(t0);
+  f.setTargetAtTime(600,t0,.02);
+  f.setTargetAtTime(20000,t1,.06);
+
+  evDelayUntil=t1+barSec*.5;   // apply() との取り合いを避ける
+}
+
 /* ---- キラキラのリフの出現 (D-48) ----
    4小節区間の頭で、その区間に出すかどうかと、出す小節を決める。
    常時鳴らさないことが肝なので、確率と間隔の下限で薄く保つ */
@@ -2566,6 +2634,24 @@ function regenerate(bar){
   }
   if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; }
   planSpark(bar);
+
+  // ダブ (D-49)。開始点以降を抜き、小節の終わりのオカズだけ残す
+  dubBar=-1;
+  if(bar===dubAt && phrase!=='break'){
+    dubBar=bar; dubAt=-1;
+    // 小節の頭からか、途中からか
+    dubStart = Math.random()<.5 ? 0 : pick([4,6,8,10]);
+    for(const k of ['kick','snare','clap','hat','ohat','hat32','perc1','perc2','rim'])
+      for(let i=dubStart;i<16;i++) seq[k][i]=0;
+    // 他のトラックは消しきらず、3割だけ残して薄くする
+    for(const k of ['bass','lead','stab','ep','chop','arp','riff','spark'])
+      for(let i=dubStart;i<16;i++) if(Math.random()>=.3) seq[k][i]=(k==='bass'||k==='lead'||k==='spark')?null:0;
+    seq.fill=new Array(16).fill(null);
+    pendingSpill=null;
+    makeDubFill(bar);
+  }
+  if(bar>dubAt) dubAt=-1;   // 取りこぼしたら捨てる
+  planDub(bar);
 }
 
 /* ============================================================
@@ -2696,6 +2782,7 @@ function playStep(i,time){
   if(seqB) playStepB(i,time);
   const hatOff  = barCount<=muteHatUntilBar;
   const kickOff = barCount<=muteKickUntilBar;
+  const dubOff  = barCount===dubBar && i>=dubStart;   // ダブ (D-49) で抜けている間
 
   if(seq.kick[i]  && !kickOff) bd(time,seq.kick[i]);
   if(seq.snare[i]) sd(time,seq.snare[i]);
@@ -2711,8 +2798,8 @@ function playStep(i,time){
   if(seq.perc1[i]) perc(time,seq.perc1[i],-.45,.2);
   if(seq.perc2[i]) perc(time,seq.perc2[i], .50,1.1);
   if(seq.rim[i])   rim(time,seq.rim[i],rand(-.6,.6));
-  if(k.cowbell && i===6 && Math.random()<.22) cb(time,.7);
-  if(i===0 && phrase==='drop') cy(time,.8);   // 戻しの頭にシンバル
+  if(k.cowbell && i===6 && !dubOff && Math.random()<.22) cb(time,.7);
+  if(i===0 && phrase==='drop' && !dubOff) cy(time,.8);   // 戻しの頭にシンバル
 
   // --- 16分のシーケンス (D-21)
   const ld=seq.lead[i];
@@ -2759,7 +2846,7 @@ function playStep(i,time){
   }
 
   // グリッチ: その小節の終盤だけ32分で刻み直す (D-3 の C 要素)
-  if(barCount===glitchBar && i>=12){
+  if(barCount===glitchBar && i>=12 && !dubOff){
     perc(time+sw*.5,.55,rand(-.6,.6),rand(.5,1.6));
     if(i===15) hh(time+sw*.75,.5,false);
   }
@@ -2873,6 +2960,7 @@ function onBar(bar,time){
     padRebuild(time);
   }
   regenerate(bar);
+  if(bar===dubBar) fireDub(time);   // ダブ (D-49)。音の側の仕掛けはここから
   // DJ ミックス風の遷移では、同じ小節に対して新シーンぶんの並びも作る (D-5 方式3)
   seqB = (pendingScene>=0 && transitionMode==='mix')
     ? buildBar(bar,pendingScene,'plateau',patSeedB,false) : null;
