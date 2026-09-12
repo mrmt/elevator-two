@@ -1038,7 +1038,7 @@ function buildHarmony(){
 
   // ---- キラキラのリフ回路 (D-48) ----
   // たまにしか鳴らない装飾。コーラスはジャズ回路と同じ作りで、量を多めに取る
-  sparkBus=ctx.createGain(); sparkBus.gain.value=.6;
+  sparkBus=ctx.createGain(); sparkBus.gain.value=1.5;
   sparkOut=ctx.createGain(); sparkOut.gain.value=1;
   sparkBus.connect(sparkOut);                 // 原音
   for(const [dt,rate,pan] of [[.0058,.51,-.75],[.0089,.79,.75]]){
@@ -1757,9 +1757,31 @@ function sparkNote(time,midi,vel){
   amp.gain.linearRampToValueAtTime(0,time+dec+.01);
   nodes.push(amp);
 
+  /* FM のベルを重ねる。非整数比で変調すると倍音が整数列から外れて金属質になる。
+     ローパスを通さず VCA の後ろへ直に入れる。閉じてしまうと芯が消えるため。
+     減衰は鋸・矩形より長めに取って、消えぎわに響きだけ残す */
+  const bellDec=Math.min(dec*1.8,.5);
+  const cf=f*2;                                 // 1オクターブ上を芯にする
+  const car=ctx.createOscillator(), mod=ctx.createOscillator(),
+        mg=ctx.createGain(), bg=ctx.createGain();
+  car.type='sine'; mod.type='sine';
+  car.frequency.value=cf;
+  mod.frequency.value=cf*pick([1.41,2.76,3.5]);  // 鐘の音色はこの比で決まる
+  // 変調指数は落としながら鳴らす。倍音が減っていくのが鐘らしさになる
+  mg.gain.setValueAtTime(cf*rand(2.2,4),time);
+  mg.gain.exponentialRampToValueAtTime(Math.max(cf*.12,1),time+bellDec*.5);
+  mod.connect(mg).connect(car.frequency);
+  bg.gain.setValueAtTime(.0001,time);
+  bg.gain.exponentialRampToValueAtTime(Math.max(vel*.16,.0002),time+.002);
+  bg.gain.exponentialRampToValueAtTime(.0001,time+bellDec);
+  car.connect(bg).connect(pn);
+  for(const o of [car,mod]){ o.start(time); o.stop(time+bellDec+.06); }
+  nodes.push(car,mod,mg,bg);
+
   sum.connect(fl).connect(amp).connect(pn).connect(sparkBus);
   for(const o of lfos){ o.start(time); o.stop(time+dec+.06); }
-  for(const n of nodes) disposeAt(n,time+dec+.14);
+  const tail=Math.max(dec,bellDec);
+  for(const n of nodes) disposeAt(n,time+tail+.14);
 }
 
 /* ============================================================
