@@ -556,7 +556,7 @@ ja:{
   'mode.stab':'自然短音階','mode.jazz':'ドリアン','mode.funk':'短調ペンタトニック','mode.sustain':'長調',
   'circuit.stab':'スタブ','circuit.jazz':'エレピ','circuit.sustain':'持続','circuit.funk':'持続(薄)',
   'mode2.break':'ブレイク','mode2.morph':'連続変形','mode2.mix':'ミックス',
-  'mode3.chop':'連打','noise.label':'ノイズ','bass.label':'ベース','bass.phaser':'+フェーザー','bass.wobble':'+ゆらぎ',
+  'mode3.chop':'連打','noise.label':'ノイズ','bass.label':'ベース','bass.phaser':'+フェーザー','bass.wobble':'+ゆらぎ','bass.mod':'+ビブラート',
   'footer.note':'白い十字が目標、琥珀のランプが現在地。ステップ列の緑がキックとスネア、青がハット',
   'group.stab':'スタブ / 陰','group.sustain':'持続 / 陽','group.jazz':'ジャズ・ボッサ','group.funk':'electro funk',
   'param.volume':'音量','param.weight':'重さ','param.drive':'押し出し','param.space':'空間',
@@ -617,7 +617,7 @@ en:{
   'mode.stab':'minor','mode.jazz':'dorian','mode.funk':'minor pentatonic','mode.sustain':'major',
   'circuit.stab':'stab','circuit.jazz':'e.piano','circuit.sustain':'sustain','circuit.funk':'sustain (thin)',
   'mode2.break':'break','mode2.morph':'morph','mode2.mix':'mix',
-  'mode3.chop':'chop','noise.label':'noise','bass.label':'bass','bass.phaser':'+phaser','bass.wobble':'+wobble',
+  'mode3.chop':'chop','noise.label':'noise','bass.label':'bass','bass.phaser':'+phaser','bass.wobble':'+wobble','bass.mod':'+vibrato',
   'footer.note':'White cross is the target, the amber lamp the current position. Green steps are kick and snare, blue are hats.',
   'group.stab':'stab / yin','group.sustain':'sustain / yang','group.jazz':'jazz & bossa','group.funk':'electro funk',
   'param.volume':'volume','param.weight':'weight','param.drive':'drive','param.space':'space',
@@ -1378,9 +1378,12 @@ const bassDrvParam = () => (bassLadder.parameters && bassLadder.parameters.get('
 /* 矩形波を1本のオシレータでは作らず、鋸波とその遅延の差で作る。
    遅延の長さがそのままパルス幅になるので、そこを揺らせば pulse width modulation になり、
    デチューンだけでは出ない厚みとコーラス感が乗る (D-18) */
-function pulseVoice(t,freq,cents,dur){
+function pulseVoice(t,freq,cents,dur,mod){
   const a=ctx.createOscillator(), b=ctx.createOscillator();
-  for(const o of [a,b]){ o.type='sawtooth'; o.frequency.value=freq; o.detune.value=cents; }
+  for(const o of [a,b]){
+    o.type='sawtooth'; o.frequency.value=freq; o.detune.value=cents;
+    if(mod) mod.connect(o.detune);   // 揺らぎ (D-50)
+  }
   const d=ctx.createDelay(.05), inv=ctx.createGain();
   inv.gain.value=-1;
   const half=.5/freq;             // 半周期ぶん遅らせると duty 50% の矩形波になる
@@ -1399,10 +1402,26 @@ function bassNote(time,midi,durSec,vel,accent){
   if(!bassReady) return;
   const f=mtof(midi), t=time;
   const oscs=[];
-  for(const cents of [-7,0,7]) pulseVoice(t,f,cents,durSec);
+
+  /* 揺らぎ (D-50)。音程そのものを LFO で振る。
+     頭は素のまま立ち上げたいので、深さは伸びはじめてから効かせる */
+  let mod=null;
+  if(bassMod && durSec>.18){
+    const lfo=ctx.createOscillator(), lg=ctx.createGain();
+    lfo.type='sine'; lfo.frequency.value=rand(4.5,7.5);
+    lg.gain.setValueAtTime(0,t);
+    lg.gain.linearRampToValueAtTime(rand(18,55),t+Math.min(durSec*.35,.18));
+    lfo.connect(lg);
+    lfo.start(t); lfo.stop(t+durSec+.06);
+    disposeAt(lfo,t+durSec+.12); disposeAt(lg,t+durSec+.12);
+    mod=lg;
+  }
+
+  for(const cents of [-7,0,7]) pulseVoice(t,f,cents,durSec,mod);
   // サブ。ここが「厚み」の半分を担う
   const sub=ctx.createOscillator(), sg=ctx.createGain();
   sub.type='square'; sub.frequency.value=f/2;
+  if(mod) mod.connect(sub.detune);
   sg.gain.value=.85+current.weight*.5;
   sub.connect(sg).connect(bassSum); sub.start(t); sub.stop(t+durSec+.06);
   oscs.push(sub);
@@ -1516,6 +1535,8 @@ let bassNotes=0;
 const bassSparse = () => bassNotes>0 && bassNotes<5;
 // 音程が動かない小節。1音ごとにフィルタとレゾナンスを振る (D-42)
 let bassWobble=false;
+// サスティンのある音色で旋律が単純な小節に、たまに掛かる揺らぎ (D-50)
+let bassMod=false;
 // true なら、持続する和音の代わりに短い和音を連打する (D-34)
 let padChop=false;
 
@@ -2681,7 +2702,13 @@ function regenerate(bar){
   // 疎な小節はフェーザーで補う (D-39)。その判断に使う
   bassNotes = seq.bass.filter(Boolean).length;
   // 音程がほとんど動かない小節は、1音ごとにフィルタを揺らして単調さを補う (D-42)
-  bassWobble = new Set(seq.bass.filter(Boolean).map(b=>b.midi)).size<=2;
+  const bassPitches = new Set(seq.bass.filter(Boolean).map(b=>b.midi)).size;
+  bassWobble = bassPitches<=2;
+  /* サスティンのある音色で、旋律が単純な小節にだけ揺らぎを掛ける (D-50)。
+     タイトな音色は伸びないので掛ける先がない。
+     このベースは設計上ほとんどの小節が単純 (音程1つが74%、2つ以下で97%) なので、
+     ここは「動きすぎる小節を外す」だけの条件。薄さは9%のほうが担う */
+  bassMod = !bassTight && bassPitches>0 && bassPitches<=2 && Math.random()<.09;
   seq.fill=new Array(16).fill(null);
   // 音色はときどき差し替える。基本は鋸波で、たまに別の波形になる
   if(Math.random()<.25) leadType = Math.random()<.5 ? 'sawtooth' : pick(LEAD_TYPES);
@@ -3262,7 +3289,8 @@ function showProgress(){
   // ベースの音符数と、疎なときに掛かるフェーザー (D-39)
   const bs = `  ${t('bass.label')} ${bassNotes}`
     + (bassSparse()?' '+t('bass.phaser'):'')
-    + (bassWobble?' '+t('bass.wobble'):'');
+    + (bassWobble?' '+t('bass.wobble'):'')
+    + (bassMod?' '+t('bass.mod'):'');
   pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${t('circuit.'+circuit())}${mode}${epGuest?' + ep':''}]${bs}${nz}`;
 }
 
