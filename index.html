@@ -767,6 +767,7 @@ let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     bassAmp=null, bassComp=null, bassLfo=null, bassReady=false,
     bassPhWet=null, bassPhLfo=null,
     padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
+    sparkBus=null, sparkOut=null,
     leadBus=null, leadFilt=null, leadDly=null, leadTaps=null,
     chopBus=null, chopDly=null, chopTaps=null,
     noiseBus=null, noiseSat=null,
@@ -1027,6 +1028,24 @@ function buildHarmony(){
   epOut.connect(dry);
   const eRev=ctx.createGain(); eRev.gain.value=.35; epOut.connect(eRev).connect(revSend);
   const eDly=ctx.createGain(); eDly.gain.value=.2;  epOut.connect(eDly).connect(dlySend);
+
+  // ---- キラキラのリフ回路 (D-48) ----
+  // たまにしか鳴らない装飾。コーラスはジャズ回路と同じ作りで、量を多めに取る
+  sparkBus=ctx.createGain(); sparkBus.gain.value=.6;
+  sparkOut=ctx.createGain(); sparkOut.gain.value=1;
+  sparkBus.connect(sparkOut);                 // 原音
+  for(const [dt,rate,pan] of [[.0058,.51,-.75],[.0089,.79,.75]]){
+    const dl=ctx.createDelay(.05); dl.delayTime.value=dt;
+    const lfo=ctx.createOscillator(), dep=ctx.createGain();
+    lfo.type='sine'; lfo.frequency.value=rate; dep.gain.value=dt*.5;
+    lfo.connect(dep).connect(dl.delayTime); lfo.start();
+    const pn=ctx.createStereoPanner(); pn.pan.value=pan;
+    const g=ctx.createGain(); g.gain.value=.7;
+    sparkBus.connect(dl); dl.connect(pn).connect(g).connect(sparkOut);
+  }
+  sparkOut.connect(dry);
+  const kRev=ctx.createGain(); kRev.gain.value=.4;  sparkOut.connect(kRev).connect(revSend);
+  const kDly=ctx.createGain(); kDly.gain.value=.35; sparkOut.connect(kDly).connect(dlySend);
 
   /* ---- インダストリアル・ノイズの発音 (D-38) ----
    1音ごとに音色を不規則に振る。素材・再生速度・フィルタの種類と帯域・
@@ -1677,6 +1696,58 @@ function epChord(time,vel){
   notes.forEach((n,i)=>epNote(time+i*.006,n,vel*(i===0?1:.8),.30));
 }
 
+/* ---- キラキラのリフの発音 (D-48) ----
+   鋸2基と矩形1基を重ねて厚みを出し、共通の LFO を detune に掛けて濁らせる。
+   アタックは速く、短いディケイで落として伸ばさない。コーラスは回路側が持つ */
+function sparkNote(time,midi,vel){
+  const f=mtof(midi);
+  const dec=rand(.18,.30);
+  const nodes=[];
+
+  const sum=ctx.createGain(); sum.gain.value=.5;
+  const pn=ctx.createStereoPanner(); pn.pan.value=rand(-.2,.2);
+  nodes.push(sum,pn);
+
+  // 全基の detune へ共通で掛ける揺らぎ。深さは1音ごとに引き直す
+  const lfo=ctx.createOscillator(), dep=ctx.createGain();
+  lfo.type='sine'; lfo.frequency.value=rand(5,8); dep.gain.value=rand(6,22);
+  lfo.connect(dep);
+  nodes.push(lfo,dep);
+
+  // 鋸2基 + 矩形1基。矩形は少し引いて芯だけ足す
+  const d1=rand(7,12);
+  for(const [type,det,lv] of [['sawtooth',-d1,.5],['sawtooth',d1,.5],['square',rand(-5,5),.3]]){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type=type; o.frequency.value=f; o.detune.value=det;
+    dep.connect(o.detune);
+    g.gain.value=lv;
+    o.connect(g).connect(sum);
+    o.start(time); o.stop(time+dec+.06);
+    nodes.push(o,g);
+  }
+
+  // VCF: 立ち上がりで大きく開き、VCA と同じ速さで閉じる
+  const fl=ctx.createBiquadFilter();
+  fl.type='lowpass'; fl.Q.value=4;
+  const base=Math.min(f*2.4+400,3600), peak=Math.min(base*4,12000);
+  fl.frequency.setValueAtTime(base,time);
+  fl.frequency.exponentialRampToValueAtTime(peak,time+.004);
+  fl.frequency.exponentialRampToValueAtTime(Math.max(base*.5,300),time+dec);
+  nodes.push(fl);
+
+  // VCA: アタック 3ms、サスティンを持たずディケイだけで落とす
+  const amp=ctx.createGain();
+  amp.gain.setValueAtTime(.0001,time);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.3,.0002),time+.003);
+  amp.gain.exponentialRampToValueAtTime(.0001,time+dec);
+  amp.gain.linearRampToValueAtTime(0,time+dec+.01);
+  nodes.push(amp);
+
+  sum.connect(fl).connect(amp).connect(pn).connect(sparkBus);
+  lfo.start(time); lfo.stop(time+dec+.06);
+  for(const n of nodes) disposeAt(n,time+dec+.14);
+}
+
 /* ============================================================
    ドラム音源 (D-10)
    すべて TR-808 の作り方に倣った合成。サンプルは持たない。
@@ -2106,7 +2177,7 @@ function maybeEvent(bar,time){
    各トラックは16個の強さ (0 なら鳴らさない) を持つ。
    ============================================================ */
 const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[],bass:[],
-           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[],chop:[],hat32:[]};
+           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[],chop:[],hat32:[],spark:[]};
 let leadType='sawtooth';   // 16分シーケンスの音色。小節ごとに引き直す
 // オカズが次の小節へはみ出したぶん。次の小節の頭に足される
 let pendingSpill=null;
@@ -2430,6 +2501,43 @@ function makeFill(bar){
 }
 
 // いま鳴っているシーンぶんを引き直す。onBar() の頭で呼ぶ
+/* ---- キラキラのリフの出現 (D-48) ----
+   4小節区間の頭で、その区間に出すかどうかと、出す小節を決める。
+   常時鳴らさないことが肝なので、確率と間隔の下限で薄く保つ */
+let sparkAt=-1, sparkNotes=null, sparkSpill=null, sparkLastTime=-999;
+
+const SPARK_GAP=22;   // 秒。これより短い間隔では続けて出さない
+
+function planSpark(bar){
+  if(bar%4!==0 || phrase==='break') return;
+  if(ctx.currentTime-sparkLastTime<SPARK_GAP) return;   // 固まって出るのを防ぐ
+  /* 毎分1.5回になる確率を BPM から逆算する。4小節区間は 960/bpm 秒。
+     間隔の下限が直後の何区間かを塞ぐので、そのぶんを込みで上げておかないと
+     実際の回数が目標を割る */
+  const per=960/bpmNow();              // 1区間の秒数
+  const r=1.5*per/60;                  // 間隔の下限が無ければこの確率でよい
+  const g=Math.floor(SPARK_GAP/per);   // 発火のあと塞がれる区間の数
+  if(Math.random()>=clamp(r/Math.max(1-r*g,.25),.08,.5)) return;
+  sparkAt = bar + (Math.random()<.62 ? 3 : 1);     // 4小節め寄り、たまに2小節め
+  // 旋律は和音の構成音だけで作る。順次進行を主に、2割ほど跳ぶ。
+  // 調と度数で和音の位置が動くので、8フィートの音域へ畳んでから使う
+  const tones=[...new Set(chordNotes(60).map(n=>{
+    while(n<58) n+=12;
+    while(n>77) n-=12;
+    return n;
+  }))].sort((a,b)=>a-b);
+  const n=3+Math.floor(Math.random()*3);           // 4分音符3〜5個
+  let idx=Math.floor(Math.random()*tones.length);
+  sparkNotes=[];
+  for(let i=0;i<n;i++){
+    sparkNotes.push({midi:tones[idx], vel:(i===0?.95:.72+Math.random()*.16)});
+    const dist=Math.random()<.2 ? 2+Math.floor(Math.random()*2) : 1;
+    let next=idx+(Math.random()<.5?-dist:dist);
+    if(next<0 || next>tones.length-1) next=idx-(next<0?-dist:dist);   // 端で折り返す
+    idx=clamp(next,0,tones.length-1);
+  }
+}
+
 function regenerate(bar){
   // 変異 (D-7)。当たったときだけ種を引き直し、それまでは同じ並びを繰り返す
   if(Math.random()<current.mutate*.5) reseedPattern();
@@ -2448,6 +2556,16 @@ function regenerate(bar){
     pendingSpill=null;
   }
   if(fillBar) makeFill(bar);
+
+  // キラキラのリフ (D-48)。4分音符なので 0/4/8/12 に置き、5音めは次の小節の頭へ
+  seq.spark=new Array(16).fill(null);
+  if(sparkSpill){ seq.spark[0]=sparkSpill; sparkSpill=null; }
+  if(bar===sparkAt && sparkNotes && phrase!=='break'){
+    sparkNotes.forEach((nt,i)=>{ if(i<4) seq.spark[i*4]=nt; else sparkSpill=nt; });
+    sparkLastTime=ctx.currentTime;
+  }
+  if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; }
+  planSpark(bar);
 }
 
 /* ============================================================
@@ -2616,6 +2734,9 @@ function playStep(i,time){
   // --- ハーモニー
   if(seq.stab[i]) stabHit(time,seq.stab[i]);
   if(seq.ep[i])   epChord(time,seq.ep[i]);
+  // キラキラのリフ (D-48)
+  const sp=seq.spark[i];
+  if(sp) sparkNote(time,sp.midi,sp.vel);
   // インダストリアル・ノイズ。小節ではなく通し番号で回すのでポリリズムになる (D-38)
   if(noiseOn && phrase!=='break'){
     const g0=barCount*16+i;
