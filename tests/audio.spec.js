@@ -162,7 +162,7 @@ test('ベースが和音のルート音を基本にする', async ({ page }) => 
 });
 
 test('並びが切り替わる前の小節にオカズが入る', async ({ page }) => {
-  test.setTimeout(150000);
+  test.setTimeout(260000);
   // D-20。タムは正弦波のピッチ落ちで作るので、予約された周波数を見れば拾える。
   // バスドラムとスネアも正弦なので、そちらの決まった値は除く
   await page.addInitScript(() => {
@@ -185,18 +185,27 @@ test('並びが切り替わる前の小節にオカズが入る', async ({ page 
   await page.waitForTimeout(1200);
   const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
 
-  // オカズはタム主体かスネア主体かを毎回引くので、タムが出るまで数回ぶん見る必要がある。
-  // 8小節に一度しか来ないため、窓を長く取る
-  await page.evaluate(() => { window.__sine.length = 0; });
-  await page.waitForTimeout(75000);
-  const sine = await page.evaluate(() => window.__sine);
-
   // 最頻の2〜3個はバスドラムとスネアの決まった値。残りがタム
-  const hist = {};
-  for (const [v] of sine) hist[v] = (hist[v] || 0) + 1;
-  const common = Object.entries(hist).filter(([, c]) => c > sine.length * 0.1).map(([v]) => Number(v));
-  const toms = sine.filter(([v]) => !common.includes(v)).map(([, t]) => t);
-  expect(toms.length).toBeGreaterThan(0);
+  const pickToms = (sine) => {
+    const hist = {};
+    for (const [v] of sine) hist[v] = (hist[v] || 0) + 1;
+    const common = Object.entries(hist).filter(([, c]) => c > sine.length * 0.1).map(([v]) => Number(v));
+    return sine.filter(([v]) => !common.includes(v)).map(([, t]) => t);
+  };
+
+  /* オカズはタム主体かスネア主体かを毎回引き、8小節に一度しか来ない。
+     窓を固定にすると採れるタムが6個しかない回があり、そのときは
+     この後の late / head の比較が数個の差で決まってしまって落ちる。
+     必要な数が集まるまで待つ */
+  await page.evaluate(() => { window.__sine.length = 0; });
+  let sine = [];
+  for (let waited = 0; waited < 210000; waited += 5000) {
+    await page.waitForTimeout(5000);
+    sine = await page.evaluate(() => window.__sine);
+    if (pickToms(sine).length >= 20) break;
+  }
+  const toms = pickToms(sine);
+  expect(toms.length).toBeGreaterThanOrEqual(20);
 
   // オカズは小節の後ろ半分に置かれる。はみ出したぶんだけが次の小節の頭に来る (D-20)。
   // つまり打点は「後ろ半分」か「頭のすぐ近く」のどちらかに集まる
