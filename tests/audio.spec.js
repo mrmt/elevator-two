@@ -77,7 +77,7 @@ test('Ladder フィルタが AudioWorklet で動く', async ({ page }) => {
 });
 
 test('重さを上げると低域が増える', async ({ page }) => {
-  test.setTimeout(90000);
+  test.setTimeout(150000);
   // 曙 (daybreak) はベースが16分で動くシーン。
   // 「押し出し」の効きはマスターのコンプに均されて測りにくいので、
   // ベースとキックの量そのものを動かす「重さ」で見る
@@ -91,8 +91,11 @@ test('重さを上げると低域が増える', async ({ page }) => {
     const a = window.__audioProbe;
     a.fftSize = 4096;
     const buf = new Uint8Array(a.frequencyBinCount);
+    /* 1回の測定で2秒ぶん均す。ベースの並びは小節ごとに変わるので、
+       1小節ぶんしか見ないと差が並びの揺らぎに埋もれる。
+       判定の余裕は2%しかなく、そこを解像できるだけ measurement を長く取る */
     let lo = 0, n = 0;
-    for (let k = 0; k < 32; k++) {
+    for (let k = 0; k < 80; k++) {
       a.getByteFrequencyData(buf);
       for (let i = 3; i < 13; i++) lo += buf[i];   // 約30〜140Hz
       n++;
@@ -103,7 +106,7 @@ test('重さを上げると低域が増える', async ({ page }) => {
 
   // 並びは小節ごとに変わるので、交互に切り替えて複数回測り平均で見る
   const light = [], heavy = [];
-  for (let round = 0; round < 3; round++) {
+  for (let round = 0; round < 5; round++) {
     await page.locator('#s_weight').fill('0');
     await page.waitForTimeout(3000);
     light.push(await lowBand());
