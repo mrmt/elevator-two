@@ -2062,10 +2062,22 @@ let transitionEndBar=-1;
 let transitionMode='break';   // 'break' | 'morph' | 'mix' (D-5 の3方式)
 /* 開発用。?transition=mix のように付けると遷移方式を固定できる。
    方式2と3は自動では数分に一度しか起きないので、手元での確認とテストに要る */
+const QS=new URLSearchParams(location.search);
 const forcedMode=(()=>{
-  const v=new URLSearchParams(location.search).get('transition');
+  const v=QS.get('transition');
   return ['break','morph','mix'].includes(v) ? v : null;
 })();
+/* 開発用。?spark / ?dub を付けると、たまにしか出ない仕掛けを続けて出せる。
+   値を 0〜1 で渡すとそれが確率になる。値なしなら必ず出す。
+   リフ (D-48) は毎分1〜2回、ダブ (D-49) は32小節ごとに3割なので、
+   素のままでは試聴に何分もかかる */
+const qsRate=key=>{
+  const v=QS.get(key);
+  if(v===null) return null;
+  const n=parseFloat(v);
+  return Number.isFinite(n) ? clamp(n) : 1;
+};
+const forcedSpark=qsRate('spark'), forcedDub=qsRate('dub');
 let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
@@ -2516,11 +2528,14 @@ function makeFill(bar){
 let dubAt=-1, dubBar=-1, dubStart=0;
 
 function planDub(bar){
-  if(bar%32!==0 || phrase==='break' || pendingScene>=0) return;
-  const p = SCENES[sceneIdx].group==='funk' ? .30 : .03;
+  // 指定があるときは周期も4小節まで詰めて、シーンの種類も問わない
+  const every = forcedDub===null ? 32 : 4;
+  if(bar%every!==0 || phrase==='break' || pendingScene>=0) return;
+  const p = forcedDub!==null ? forcedDub
+          : SCENES[sceneIdx].group==='funk' ? .30 : .03;
   if(Math.random()>=p) return;
   // 32小節の中から4小節区間をひとつ引き、その4小節めか2小節めに置く
-  const blk=Math.floor(Math.random()*8);
+  const blk=Math.floor(Math.random()*(every/4));
   dubAt = bar + blk*4 + (Math.random()<.6 ? 3 : 1);
 }
 
@@ -2578,14 +2593,19 @@ const SPARK_GAP=22;   // 秒。これより短い間隔では続けて出さな�
 
 function planSpark(bar){
   if(bar%4!==0 || phrase==='break') return;
-  if(ctx.currentTime-sparkLastTime<SPARK_GAP) return;   // 固まって出るのを防ぐ
-  /* 毎分1.5回になる確率を BPM から逆算する。4小節区間は 960/bpm 秒。
-     間隔の下限が直後の何区間かを塞ぐので、そのぶんを込みで上げておかないと
-     実際の回数が目標を割る */
-  const per=960/bpmNow();              // 1区間の秒数
-  const r=1.5*per/60;                  // 間隔の下限が無ければこの確率でよい
-  const g=Math.floor(SPARK_GAP/per);   // 発火のあと塞がれる区間の数
-  if(Math.random()>=clamp(r/Math.max(1-r*g,.25),.08,.5)) return;
+  const gap = forcedSpark===null ? SPARK_GAP : 0;
+  if(ctx.currentTime-sparkLastTime<gap) return;   // 固まって出るのを防ぐ
+  let p=forcedSpark;
+  if(p===null){
+    /* 毎分1.5回になる確率を BPM から逆算する。4小節区間は 960/bpm 秒。
+       間隔の下限が直後の何区間かを塞ぐので、そのぶんを込みで上げておかないと
+       実際の回数が目標を割る */
+    const per=960/bpmNow();              // 1区間の秒数
+    const r=1.5*per/60;                  // 間隔の下限が無ければこの確率でよい
+    const g=Math.floor(SPARK_GAP/per);   // 発火のあと塞がれる区間の数
+    p=clamp(r/Math.max(1-r*g,.25),.08,.5);
+  }
+  if(Math.random()>=p) return;
   sparkAt = bar + (Math.random()<.62 ? 3 : 1);     // 4小節め寄り、たまに2小節め
   // 旋律は和音の構成音だけで作る。順次進行を主に、2割ほど跳ぶ。
   // 調と度数で和音の位置が動くので、8フィートの音域へ畳んでから使う
