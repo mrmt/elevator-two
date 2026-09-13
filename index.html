@@ -2624,13 +2624,24 @@ function planSpark(bar){
   }))].sort((a,b)=>a-b);
   const n=3+Math.floor(Math.random()*3);           // 4分音符3〜5個
   let idx=Math.floor(Math.random()*tones.length);
-  sparkNotes=[];
+  // 音の並びを先に引く。leap[i] は i 番めから次の音への動きが跳躍かどうか
+  const line=[], leap=[];
   for(let i=0;i<n;i++){
-    sparkNotes.push({midi:tones[idx], vel:(i===0?.95:.72+Math.random()*.16)});
+    line.push(idx);
     const dist=Math.random()<.2 ? 2+Math.floor(Math.random()*2) : 1;
     let next=idx+(Math.random()<.5?-dist:dist);
     if(next<0 || next>tones.length-1) next=idx-(next<0?-dist:dist);   // 端で折り返す
     idx=clamp(next,0,tones.length-1);
+    leap.push(dist>=2);
+  }
+  /* アクセントに1オクターブ下を使う (D-52)。頭と、跳んで着いた音だけ。
+     続けては落とさない。旋律ごと下がって、ただの移調に化けるため */
+  sparkNotes=[]; let low=false;
+  for(let i=0;i<n;i++){
+    low = !low && (i===0 ? Math.random()<.5 : leap[i-1] && Math.random()<.4);
+    const vel=(i===0?.95:.72+Math.random()*.16);
+    // 下げるとフィルタが低い側で開くぶん暗くなるので、少しだけ強く弾く
+    sparkNotes.push({midi:tones[line[i]]-(low?12:0), vel:low?Math.min(vel*1.15,1):vel});
   }
 }
 
