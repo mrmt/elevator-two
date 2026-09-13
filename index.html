@@ -1320,9 +1320,11 @@ function bassNote(time,midi,durSec,vel,accent){
   const oscs=[];
 
   /* 揺らぎ (D-50)。音程そのものを LFO で振る。
-     頭は素のまま立ち上げたいので、深さは伸びはじめてから効かせる */
+     頭は素のまま立ち上げたいので、深さは伸びはじめてから効かせる。
+     フィルタを揺らしている小節 (D-42) では、1音ごとにときどき音程にも掛ける (D-51) */
   let mod=null;
-  if(bassMod && durSec>.18){
+  const pitchMod = bassMod || (bassWobble && !bassTight && Math.random()<BASS_PITCH_MOD_P);
+  if(pitchMod && durSec>.18){
     const lfo=ctx.createOscillator(), lg=ctx.createGain();
     lfo.type='sine'; lfo.frequency.value=rand(4.5,7.5);
     lg.gain.setValueAtTime(0,t);
@@ -1453,6 +1455,8 @@ const bassSparse = () => bassNotes>0 && bassNotes<5;
 let bassWobble=false;
 // サスティンのある音色で旋律が単純な小節に、たまに掛かる揺らぎ (D-50)
 let bassMod=false;
+// フィルタを揺らしている小節で、1音ごとに音程にも揺らぎを掛ける確率 (D-51)
+const BASS_PITCH_MOD_P=.25;
 // true なら、持続する和音の代わりに短い和音を連打する (D-34)
 let padChop=false;
 
@@ -2240,6 +2244,7 @@ const CHORD_DEG_W=[6,1.4,3,1.2,1,1];
 // 明るい響きの品質。ベースの動き方をここで分ける (D-26)
 const BRIGHT_QUAL=['maj9','add9','sus2','x13'];
 const OFF_CHORD_P=.12;   // 和音から逸れる確率
+const BASS_OCT_P=.35;    // 同じ音程が続いたときにオクターブを動かす確率 (D-51)
 
 function bassBar(bar,R,kickPat,scIdx,phr){
   const sc=SCENES[scIdx];
@@ -2285,6 +2290,9 @@ function bassBar(bar,R,kickPat,scIdx,phr){
   const bright=BRIGHT_QUAL.includes(chordQual);
   const moveP=clamp((.10+yy*.18+(sc.group==='funk'?.12:0))*(bright?.45:1.5));
   const lastHit=hits[hits.length-1];
+  // 持続する太い音色では、同じ音程が続くとオクターブを上下させる。どの群のシーンでも行う (D-51)
+  const octJump = !bassTight;
+  let prevPitch=null;
 
   for(let n=0;n<hits.length;n++){
     const i=hits[n];
@@ -2294,7 +2302,14 @@ function bassBar(bar,R,kickPat,scIdx,phr){
       deg = R()<OFF_CHORD_P ? sl[Math.floor(R()*sl.length)] : alt;
     }
     // オクターブ上げは小節の最後の打点だけ。ここも動きの元になるので控える
-    const oct = (i===lastHit && i!==0 && yy>.6 && R()<.12) ? 12 : 0;
+    let oct = (i===lastHit && i!==0 && yy>.6 && R()<.12) ? 12 : 0;
+    const pitch=root+deg;
+    if(octJump && !oct && pitch===prevPitch && R()<BASS_OCT_P){
+      // 元の音域が低いので8割は上げる。下げるのは低くなりすぎないときだけで、
+      // 芯が消えるので midi 28 を下限にする
+      oct = (pitch-12>=28 && R()<.2) ? -12 : 12;
+    }
+    prevPitch=pitch;
     const next = n+1<hits.length ? hits[n+1] : 16;
     const steps=Math.max(1,(next-i)*legato);
     // キックと同じ位置はアクセント。フィルタの叩き方が変わる
@@ -2624,7 +2639,8 @@ function planSpark(bar){
    判断材料をここでまとめて出す */
 function measureBass(){
   bassNotes = seq.bass.filter(Boolean).length;
-  const bassPitches = new Set(seq.bass.filter(Boolean).map(b=>b.midi)).size;
+  // 音名で数える。オクターブを上下させただけの小節 (D-51) は「動かない」側に入れる
+  const bassPitches = new Set(seq.bass.filter(Boolean).map(b=>b.midi%12)).size;
   // 音程がほとんど動かない小節は、1音ごとにフィルタを揺らして単調さを補う (D-42)
   bassWobble = bassPitches<=2;
   /* サスティンのある音色で、旋律が単純な小節にだけ揺らぎを掛ける (D-50)。
