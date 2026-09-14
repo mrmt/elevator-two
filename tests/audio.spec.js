@@ -408,3 +408,77 @@ test('monitor に波形が出る', async ({ page }) => {
   const b = await strip();
   expect(a).not.toBe(b);
 });
+
+test('lush を上げると、strings の持続音が開いた配置になる', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-66。持続音の鋸波は detune がちょうど ±6。立ち上げた時刻ごとに組にして、音の並びを調べる
+  await page.addInitScript(() => {
+    window.__pad = {};
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const start = o.start.bind(o);
+      o.start = function (when) {
+        if (o.type === 'sawtooth' && o.detune.value === -6) {
+          const m = Math.round(69 + 12 * Math.log2(o.frequency.value / 440));
+          (window.__pad[when.toFixed(3)] ||= []).push(m);
+        }
+        return start(when);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('#s_glide').fill('3');
+  await page.locator('#s_lush').fill('1');
+  await page.waitForTimeout(6000);
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak (sustain)
+  await expect(page.locator('#pchord')).toContainText('[sustain lush');
+  await page.locator('#play').click();
+  await expect.poll(() => page.evaluate(() => Object.keys(window.__pad).length), { timeout: 15000 })
+    .toBeGreaterThan(0);
+
+  const groups = Object.values(await page.evaluate(() => window.__pad));
+  for (const g of groups) {
+    const notes = [...g].sort((a, b) => a - b);
+    // 低い音域では隣り合う音を3半音以上離す
+    for (let k = 1; k < notes.length; k++) {
+      if (notes[k] < 60) expect(notes[k] - notes[k - 1]).toBeGreaterThanOrEqual(3);
+    }
+    // 同じ音名を重ねない (根音も重ねない)
+    expect(new Set(notes.map(n => n % 12)).size).toBe(notes.length);
+  }
+});
+
+test('e.piano は正弦波を同じ周波数の正弦波で変調して鳴る', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-68。発振器 → 増幅 → 別の発振器の周波数、というつなぎを追い、
+  // 変調する側とされる側がどちらも正弦波で、周波数が同じ組 (1:1 の FM) を数える。
+  // FM を使う他の音 (リフのベルは非整数比、打鍵のカチッは14倍) はこの条件に入らない
+  await page.addInitScript(() => {
+    window.__fm11 = 0;
+    const freqOwner = new WeakMap();   // 周波数の AudioParam → その発振器
+    const gainSource = new WeakMap();  // 増幅 → そこへつないだ発振器
+    const origOsc = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = origOsc.call(this);
+      freqOwner.set(o.frequency, o);
+      return o;
+    };
+    const origConnect = AudioNode.prototype.connect;
+    AudioNode.prototype.connect = function (dest, ...rest) {
+      if (this instanceof OscillatorNode && dest instanceof GainNode) gainSource.set(dest, this);
+      if (this instanceof GainNode && dest instanceof AudioParam && freqOwner.has(dest)) {
+        const src = gainSource.get(this), car = freqOwner.get(dest);
+        if (src && src.type === 'sine' && car.type === 'sine' && src.frequency.value === car.frequency.value) {
+          window.__fm11++;
+        }
+      }
+      return origConnect.call(this, dest, ...rest);
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(5).click();   // 硝子 glass (jazz)。e.piano が主役
+  await page.locator('#play').click();
+  await expect.poll(() => page.evaluate(() => window.__fm11), { timeout: 20000 }).toBeGreaterThan(0);
+});

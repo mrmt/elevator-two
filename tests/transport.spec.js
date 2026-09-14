@@ -129,12 +129,13 @@ test('和音が進行する', async ({ page }) => {
 });
 
 test('スタブのシーンでは和音がほとんど動かない', async ({ page }) => {
-  // スタブ回路は進行しない (D-9)。16小節に一度しか変わらない
+  // スタブ回路はほとんど進行しない (D-9)。8小節に一度しか変わらない (D-67 で16から半分に)。
+  // 140BPM の8小節は約13.7秒なので、その手前までは同じ和音のまま
   await page.locator('.scenebtn').nth(0).click();
   await page.locator('#s_bpm').fill('140');
   await page.locator('#play').click();
   const first = (await page.locator('#pchord').textContent()).split(' ')[0];
-  await page.waitForTimeout(12000);   // 8小節ぶんほど
+  await page.waitForTimeout(9000);   // 5小節ぶんほど
   expect((await page.locator('#pchord').textContent()).split(' ')[0]).toBe(first);
 });
 
@@ -179,7 +180,7 @@ test('遷移中はBPMが次のシーンへ向かって動く', async ({ page }) 
 test('D-11 の操作がひと通り揃っている', async ({ page }) => {
   // 増減があったときに気づけるよう、操作の一覧をここで押さえておく
   for (const id of ['s_volume', 's_yy', 's_density', 's_weight', 's_drive', 's_space', 's_glitch',
-                    's_evolution', 's_mutate', 's_bpm', 's_glide']) {
+                    's_evolution', 's_mutate', 's_shift', 's_lush', 's_bpm', 's_glide']) {
     await expect(page.locator('#' + id)).toBeVisible();
   }
   await expect(page.locator('#next')).toBeVisible();
@@ -277,7 +278,7 @@ test('ベースの旋律は小節ごとには変わらない', async ({ page }) 
     };
   });
   await page.goto('/index.html');
-  await page.locator('.scenebtn').nth(0).click();    // 潜行。和音が16小節ごとにしか動かない
+  await page.locator('.scenebtn').nth(0).click();    // 潜行。和音が8小節ごとにしか動かない (D-67)
   await page.locator('#s_bpm').fill('140');
   await page.locator('#s_mutate').fill('0');          // 変異で引き直させない
   await page.locator('#s_evolution').fill('0');       // フレーズを早く切り替えさせない
@@ -288,7 +289,10 @@ test('ベースの旋律は小節ごとには変わらない', async ({ page }) 
   const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
 
   await page.evaluate(() => { window.__bn.length = 0; });
-  await page.waitForTimeout(14000);
+  /* 16小節ぶん (140BPM で約27秒) 測る。8小節ぶんだけだと、比べる隣り合う組が5つしか取れず、
+     オカズの小節とその次 (2組) に和音の変わり目 (D-67 で8小節ごと) が1つ重なるだけで 0.6 ちょうどになる。
+     変わり目の数は測る長さに比例しないので、長く測れば比率に余裕が出る */
+  await page.waitForTimeout(28000);
   const raw = await page.evaluate(() => window.__bn);
   expect(raw.length).toBeGreaterThan(20);
 
@@ -506,4 +510,51 @@ test('乗り換え前の小節でダブを引いたらブレイクにしない',
   await expect(page.locator('#scenename')).toHaveClass(/blink/, { timeout: 15000 });
   await expect(page.locator('#pbarpos')).toContainText('dub');
   expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('break');
+});
+
+test('shift を上げると、8小節の節目で調が平行にずれる', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-65。shift=1 なら節目ごとに必ず動く。0 からはかならず 0 以外へ動くので、最初の節目で表示に出る
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
+  await page.locator('#s_glide').fill('3');
+  await page.locator('#s_shift').fill('1');
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await expect(page.locator('#pkey')).toHaveText(/ [+-]\d+$/, { timeout: 40000 });
+});
+
+test('lush を上げると、e.piano と strings の回路だけが開いた和声に切り替わる', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-66。判定はシーンに入るときに、平滑化された値で行う。推移時間を詰めて値が届くのを待ってから選ぶ
+  await page.locator('#s_glide').fill('3');
+  await page.locator('#s_lush').fill('1');
+  await page.waitForTimeout(6000);
+  await page.locator('.scenebtn').nth(5).click();    // 硝子 glass (jazz)
+  await expect(page.locator('#pchord')).toContainText('[e.piano lush');
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak (sustain)
+  await expect(page.locator('#pchord')).toContainText('[sustain lush');
+  await page.locator('.scenebtn').nth(0).click();    // 潜行 submerge (stab) には効かない
+  await expect(page.locator('#pchord')).not.toContainText('lush');
+});
+
+test('shift で調がずれても、開いた和声の進行は先へ進む', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-65 / D-66。調がずれるたびに進行が頭へ巻き戻る不具合があった。
+  // 開いた和声の strings の進行は、どれも2つ目か3つ目で和音の種類か分数コードが変わる。
+  // 根音の名前は平行移動でも変わるので、それを除いた部分が2種類以上出ることを見る
+  await page.locator('#s_glide').fill('3');
+  await page.locator('#s_lush').fill('1');
+  await page.locator('#s_shift').fill('1');
+  await page.locator('#s_bpm').fill('140');
+  await page.waitForTimeout(6000);
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak (sustain)
+  await page.locator('#play').click();
+  const kinds = new Set();
+  const t0 = Date.now();
+  while (Date.now() - t0 < 45000 && kinds.size < 2) {
+    const chord = (await page.locator('#pchord').textContent()).trim().split(' ')[0];
+    kinds.add(chord.replace(/^[A-G]#?/, ''));
+    await page.waitForTimeout(500);
+  }
+  expect(kinds.size).toBeGreaterThanOrEqual(2);
 });
