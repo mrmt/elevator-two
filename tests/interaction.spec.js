@@ -48,6 +48,11 @@ test('広い画面では2セクションが同時に見える', async ({ page, i
 test('ヘッダーが折り返さない', async ({ page }) => {
   const h = await page.locator('header').evaluate(el => el.getBoundingClientRect().height);
   expect(h).toBeLessThan(90);
+  // 高さだけでは2行に落ちても通ってしまう (D-69 でアイコンを足したとき、狭い画面で再生ボタンが2行目に落ちた)。
+  // 再生ボタンがタイトルと同じ行にあることを、縦の中心で見る
+  const mark = await page.locator('header .mark').boundingBox();
+  const play = await page.locator('#play').boundingBox();
+  expect(Math.abs((play.y + play.height / 2) - (mark.y + mark.height / 2))).toBeLessThan(12);
 });
 
 test('シーンは14種すべて並ぶ', async ({ page, isMobile }) => {
@@ -181,4 +186,17 @@ test('next と loop bar は control にあり、PARAM の見出しは出さな�
   await expect(page.locator('#grp-control #loop')).toHaveCount(1);
   await expect(page.locator('#tab-scene #next')).toHaveCount(0);
   await expect(page.locator('#tab-mix > .eyebrow')).toBeHidden();
+});
+
+test('タイトルの左に、上の階層へのアイコンのリンクがある', async ({ page }) => {
+  // D-69。アイコンは index.html に埋め込み、色は --ink
+  const link = page.locator('header > a.home');
+  await expect(link).toHaveAttribute('href', '../');
+  await expect(link.locator('svg path')).toHaveCount(3);
+  await expect(link).toBeVisible();
+  expect(await link.evaluate(el => getComputedStyle(el).color)).toBe('rgb(244, 244, 238)');
+  // タイトルより左にある
+  const icon = await link.boundingBox();
+  const title = await page.locator('header .mark').boundingBox();
+  expect(icon.x + icon.width).toBeLessThanOrEqual(title.x);
 });
