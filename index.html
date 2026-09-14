@@ -49,6 +49,9 @@
   .home svg{display:block;width:100%;height:100%}
   .sub{font-size:.68rem;letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
   .ver{opacity:.6}
+  /* about ページへのリンク (D-71)。バージョンと同じ小さな字で、触れると黄色に */
+  .about{text-decoration:none;opacity:.8;transition:color .16s,opacity .16s}
+  .about:hover,.about:focus-visible{color:var(--amber);opacity:1}
   /* 現在のシーン名。one の mood 表示と同じ役割 */
   .scene{color:var(--amber);opacity:.85}
   .transport{margin-left:auto;display:flex;gap:.55rem;align-items:center;flex-shrink:0}
@@ -75,6 +78,12 @@
     transition:color .16s,border-color .16s,background .16s;
   }
   .tab[aria-selected="true"]{color:var(--amber);border-bottom-color:var(--amber);background:rgba(0,0,0,.16)}
+  .tababout{
+    display:flex;align-items:center;flex:none;padding:.62rem 1rem;
+    font-size:.66rem;letter-spacing:.2em;color:var(--dim);text-decoration:none;
+    border-left:1px solid var(--line);border-bottom:2px solid transparent;transition:color .16s;
+  }
+  .tababout:hover,.tababout:focus-visible{color:var(--amber)}
 
   /* ---- main grid ---- */
   main{
@@ -180,24 +189,38 @@
   #cv{display:block;width:100%;height:84px;border:1px solid var(--line);background:#050506}
   #monitor .steps,#monitor .prog{margin-top:0}
 
-  /* ---- 大きな再生ボタン (Issue #1) ----
+  /* ---- 大きな再生ボタンと READ ME FIRST (Issue #1 / D-72) ----
      右上の小さなボタンだけでは、まず押さないと鳴らないことに気づけない。
-     YouTube と同じく、面の中央に大きく置く */
+     YouTube と同じく大きく置く。卓の中ではなく画面全体の中央に置き、その下に about ページへの案内を出す。
+     止まっている間だけ箱ごと出す。箱の余白はクリックを素通りさせる */
+  #start{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;
+    display:flex;flex-direction:column;align-items:center;gap:clamp(.9rem,2.6vmin,1.6rem);
+    pointer-events:none;
+  }
+  #start[hidden]{display:none}
+  #start>*{pointer-events:auto}
   #bigplay{
-    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-    z-index:5;display:flex;align-items:center;justify-content:center;
-    width:clamp(64px,14vmin,104px);height:clamp(64px,14vmin,104px);
+    position:relative;display:flex;align-items:center;justify-content:center;
+    width:clamp(96px,24vmin,176px);height:clamp(96px,24vmin,176px);
     border-radius:50%;
-    background:rgba(0,0,0,.42);
-    border:2px solid var(--amber);
+    background:rgba(8,8,10,.9);   /* 下のスライダーが透けて見えないよう濃くする */
+    border:3px solid var(--amber);
     color:var(--amber);
     box-shadow:0 0 0 0 rgba(216,163,64,.45);
     transition:background .18s,color .18s,transform .18s,box-shadow .6s;
     animation:bigpulse 2.6s ease-out infinite;
   }
-  #bigplay[hidden]{display:none}
   #bigplay svg{width:44%;height:44%;fill:currentColor;margin-left:8%}
-  #bigplay:hover{background:var(--amber);color:#101A22;transform:translate(-50%,-50%) scale(1.06)}
+  #bigplay:hover{background:var(--amber);color:#101A22;transform:scale(1.06)}
+  #readme{
+    font-size:clamp(1rem,3.4vmin,1.7rem);letter-spacing:.32em;font-weight:700;white-space:nowrap;
+    color:var(--amber);text-decoration:none;
+    padding:.45em .5em .45em .82em;   /* 字間のぶん右が空くので、左を少し広く取って見た目の中央を揃える */
+    background:#0B0B0D;border:1px solid rgba(255,226,10,.45);   /* 下の文字が透けないよう不透明にする */
+    transition:background .16s,color .16s;
+  }
+  #readme:hover,#readme:focus-visible{background:var(--amber);color:#08080A}
   /* 気づいてもらうための呼吸。控えめに一度ずつ広がる */
   @keyframes bigpulse{
     0%{box-shadow:0 0 0 0 rgba(216,163,64,.45)}
@@ -291,15 +314,17 @@
     body{overscroll-behavior:none}
     header{gap:.6rem;padding:.6rem .8rem .55rem}
     header .tagline{display:none}
-    /* ホームのアイコン (D-69) を足したぶん、タイトルの字間を詰めて1行に収める */
-    .mark{letter-spacing:.3em}
+    /* ホームのアイコン (D-69) を足したぶん、タイトルの字間を詰めて1行に収める。
+       シーン名の読める幅を残すため、狭い画面ではバージョンと about をヘッダーから外す (about はタブの並びへ、D-71) */
+    .mark{letter-spacing:.2em}
+    header .ver,header .about{display:none}
     .home{width:.95rem;height:.95rem}
     /* シーン名が長いとき (と、フォントの幅によっては) ヘッダーが2行に落ちる。
        1行を保ち、タイトル・バージョン・再生ボタンは縮めず、はみ出すシーン名だけを省略記号で切る (D-69) */
     header{flex-wrap:nowrap;align-items:center}
-    .mark,.ver{flex:none;white-space:nowrap}
+    .mark,.ver,.about{flex:none;white-space:nowrap}
     .scene{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .ver,.scene{font-size:.6rem;letter-spacing:.12em}
+    .ver,.about,.scene{font-size:.6rem;letter-spacing:.12em}
     .transport{gap:.4rem}
     .tbtn{padding:.5rem .8rem}
     .tbtn.xport{width:1.8rem;height:1.8rem}
@@ -376,6 +401,7 @@
   <div class="mark">Elevator Two</div>
   <div class="sub tagline">generative electro</div>
   <div class="sub ver" id="ver"></div>
+  <a class="sub about" href="about.html" data-tip="How it works and how to play it">about</a>
   <!-- 現在のシーン名。中身は updateScene() が入れる -->
   <div class="sub scene" id="scenename"></div>
   <div class="transport">
@@ -387,6 +413,8 @@
 <nav class="tabs" id="tabs">
   <button class="tab" data-tab="scene" aria-selected="false">scene</button>
   <button class="tab" data-tab="param" aria-selected="true">param</button>
+  <!-- 狭い画面では about のリンクをヘッダーからここへ移す (D-71)。切り替えのタブではないので .tab にはしない -->
+  <a class="tababout" href="about.html">about</a>
 </nav>
 
 <main id="main" data-tab="param">
@@ -408,7 +436,7 @@
 
   <section class="plane-wrap" id="tab-mix">
     <div class="eyebrow">param</div>
-    <!-- スライダー卓 (D-54)。XYパッドの跡地。群と monitor を並べ、中央に大きな再生ボタンを重ねる -->
+    <!-- スライダー卓 (D-54)。XYパッドの跡地。群と monitor を並べる -->
     <div class="console" id="console">
       <!-- スライダーの群は本体が並べる。control は monitor の前へ差し込む -->
       <div class="mixer" id="mixer">
@@ -427,10 +455,6 @@
           </div>
         </div>
       </div>
-      <!-- 大きな再生ボタン。止まっている間だけ出す (Issue #1) -->
-      <button id="bigplay" aria-label="play" data-tip="Start the transport. Browsers block audio until you interact, so press here first. Space also toggles.">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5 19.5 12 7 19.5z"/></svg>
-      </button>
     </div>
   </section>
 </main>
@@ -438,6 +462,14 @@
 <footer>
   <span class="note">Green steps are kick and snare, blue are hats.</span>
 </footer>
+
+<!-- 大きな再生ボタンと about への案内。止まっている間だけ、画面全体の中央に出す (Issue #1 / D-72) -->
+<div id="start">
+  <button id="bigplay" aria-label="play" data-tip="Start the transport. Browsers block audio until you interact, so press here first. Space also toggles.">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5 19.5 12 7 19.5z"/></svg>
+  </button>
+  <a id="readme" href="about.html">READ ME FIRST</a>
+</div>
 
 <div id="tip" role="tooltip"></div>
 
@@ -465,8 +497,8 @@ const P = {
   glitch:    {def:.90},
   evolution: {def:.90},
   mutate:    {def:.80},
-  shift:     {def:0},     // 平行移動の転調の強さ (D-65)。0 で従来どおり
-  lush:      {def:0},     // 開いた和声の強さ (D-66)。0 で従来どおり
+  shift:     {def:.5},    // 平行移動の転調の強さ (D-65)。0 で従来どおり。既定は D-70 で 0.5
+  lush:      {def:.5},    // 開いた和声の強さ (D-66)。0 で従来どおり。既定は D-70 で 0.5
 };
 
 /* ============================================================
@@ -3730,9 +3762,10 @@ setInterval(reviveAudio,4000);
 const playBtn=document.getElementById('play');
 const pauseBtn=document.getElementById('pause');
 const bigPlay=document.getElementById('bigplay');
+const startEl=document.getElementById('start');
 
 function setPowerUI(on){
-  bigPlay.hidden=on;   // 止まっている間だけ大きなボタンを出す (Issue #1)
+  startEl.hidden=on;   // 止まっている間だけ、大きなボタンと READ ME FIRST を出す (Issue #1 / D-72)
   playBtn.dataset.on=on?'1':'0';
   pauseBtn.dataset.on=on?'0':'1';
   playBtn.setAttribute('aria-pressed',on?'true':'false');
