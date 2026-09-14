@@ -529,6 +529,7 @@ const MIX = {
   bellRatio:{label:'bell FM ratio', min:.5, max:2, ratio:true,
              tip:'Multiplies the FM ratio of the riff bell. Moves the bell away from its usual metallic colours.'},
   noise:    {label:'industrial noise'},
+  soloLine: {label:'solo',       tip:'The occasional solo line'},   // キーは SOLO ボタンの solo と分ける (D-73)
 };
 const MIX_GROUPS = [
   ['drums',  ['kick','snare','clap','hat','ohat','cymbal','tom','rim','perc','cowbell']],
@@ -536,6 +537,7 @@ const MIX_GROUPS = [
   ['harmony',['strings','chop','stab','ep','lead']],
   ['riff',   ['riff','bell','bellRatio']],
   ['texture',['noise']],
+  ['solo',   ['soloLine']],
 ];
 const MIX_STORE = 'elevator-two:mix';
 const mix = {};
@@ -649,6 +651,7 @@ let ctx=null, master=null, comp=null, makeup=null, out=null, streamDest=null,
     bassPhWet=null, bassPhLfo=null,
     padBus=null, padFilter=null, padLayer=[], stabBus=null, stabFilter=null, epBus=null,
     sparkBus=null, sparkOut=null,
+    soloBus=null, soloRevSend=null, soloDlySend=null, soloTaps=null,
     leadBus=null, leadFilt=null, leadDly=null, leadTaps=null,
     chopBus=null, chopDly=null, chopTaps=null,
     noiseBus=null, noiseSat=null,
@@ -949,6 +952,27 @@ function buildHarmony(){
   sparkOut.connect(dry);
   const kRev=ctx.createGain(); kRev.gain.value=.4;  sparkOut.connect(kRev).connect(revSend);
   const kDly=ctx.createGain(); kDly.gain.value=.35; sparkOut.connect(kDly).connect(dlySend);
+
+  /* ---- ソロの回路 (D-73) ----
+     原音は dry へ。リバーブへの送りと、専用のステレオディレイへの送りは、ソロ1回ごとに soloNote() が決める。
+     ディレイは16分のシーケンスと同じく、左右で返しを送り合う */
+  soloBus=ctx.createGain(); soloBus.gain.value=0;
+  soloBus.connect(dry);
+  soloRevSend=ctx.createGain(); soloRevSend.gain.value=.12; soloBus.connect(soloRevSend).connect(revSend);
+  soloDlySend=ctx.createGain(); soloDlySend.gain.value=0;   soloBus.connect(soloDlySend);
+  const mkSoloTap=(pan)=>{
+    const d=ctx.createDelay(2), fb=ctx.createGain(), lp=ctx.createBiquadFilter(),
+          pn=ctx.createStereoPanner(), o=ctx.createGain();
+    lp.type='lowpass'; lp.frequency.value=3200; fb.gain.value=.38;
+    pn.pan.value=pan; o.gain.value=.55;
+    d.connect(lp); lp.connect(o).connect(pn).connect(mixFilter);
+    return {d,fb,lp};
+  };
+  const soloL=mkSoloTap(-.8), soloR=mkSoloTap(.8);
+  soloDlySend.connect(soloL.d); soloDlySend.connect(soloR.d);
+  soloL.lp.connect(soloL.fb).connect(soloR.d);   // 返しを左右で送り合う
+  soloR.lp.connect(soloR.fb).connect(soloL.d);
+  soloTaps=[soloL,soloR];
 
   /* ---- インダストリアル・ノイズの発音 (D-38) ----
    1音ごとに音色を不規則に振る。素材・再生速度・フィルタの種類と帯域・
@@ -1839,6 +1863,54 @@ function sparkNote(time,midi,vel){
   for(const n of nodes) disposeAt(n,time+tail+.14);
 }
 
+/* ---- ソロの発音 (D-73) ----
+   単旋律なので、ソロ1回につき声部を1つだけ持つ。矩形波 (midi 72〜91) に1オクターブ下の矩形波を薄く足し、
+   角を少し落とすローパスを通す。アタックとリリースは setTargetAtTime で丸める。
+   スラーでつながる音は包絡を切らずに音程だけ変え、ポルタメントのソロは音程を滑らせる */
+let soloVoice=null;
+function soloNote(time,ev,sw){
+  const plan=ev.plan;
+  let v=soloVoice;
+  if(!v || v.plan!==plan || time>=v.endAt){
+    // ソロの残りの長さぶん生かす。ダブで頭の音が間引かれても、途中の音から声部を作れる
+    const remain=Math.max(1,plan.start+plan.span-ev.abs);
+    const endAt=time+remain*sw;
+    const o1=ctx.createOscillator(), o2=ctx.createOscillator(), g2=ctx.createGain(),
+          lp=ctx.createBiquadFilter(), amp=ctx.createGain();
+    o1.type='square'; o2.type='square';
+    // 最初の音で初期化しておく。音程の変化は下で予約するが、立ち上がりの値もこの音にしておく
+    o1.frequency.value=mtof(ev.midi); o2.frequency.value=mtof(ev.midi)/2;
+    g2.gain.value=.28;                        // 1オクターブ下は薄く
+    lp.type='lowpass'; lp.frequency.value=4200; lp.Q.value=.5;
+    amp.gain.value=0;
+    o1.connect(lp); o2.connect(g2).connect(lp);
+    lp.connect(amp).connect(soloBus);
+    // 最後の音のあとは必ず消える。スラーの途中で音が間引かれても鳴りっぱなしにしない
+    amp.gain.setTargetAtTime(0,endAt,.07);
+    for(const o of [o1,o2]){ o.start(time); o.stop(endAt+.6); }
+    for(const n of [o1,o2,g2,lp,amp]) disposeAt(n,endAt+.7);
+    // エフェクトはソロ1回ごとに決めてある
+    soloRevSend.gain.setValueAtTime(plan.deepRev?.75:.12,time);
+    soloDlySend.gain.setValueAtTime(plan.delay?.45:0,time);
+    if(plan.delay) for(const tap of soloTaps) tap.d.delayTime.setValueAtTime(sw*plan.delay,time);
+    v=soloVoice={plan,o1,o2,amp,endAt,started:false,tieTo:-1};
+  }
+  const f=mtof(ev.midi);
+  if(plan.glide && v.started){
+    v.o1.frequency.setTargetAtTime(f,time,.04);
+    v.o2.frequency.setTargetAtTime(f/2,time,.04);
+  }else{
+    v.o1.frequency.setValueAtTime(f,time);
+    v.o2.frequency.setValueAtTime(f/2,time);
+  }
+  // 前の音からスラーでつながっていれば立ち上げ直さない
+  if(v.tieTo!==ev.abs) v.amp.gain.setTargetAtTime(Math.min(ev.vel,1)*.22,time,.012);
+  const end=time+ev.len*sw;
+  if(ev.slur) v.tieTo=ev.abs+ev.len;
+  else{ v.tieTo=-1; v.amp.gain.setTargetAtTime(0,end,.07); }
+  v.started=true;
+}
+
 /* ============================================================
    ドラム音源 (D-10)
    すべて TR-808 の作り方に倣った合成。サンプルは持たない。
@@ -2110,6 +2182,7 @@ function apply(){
 
     // 16分のシーケンス。盛り上げる局面ではステレオディレイを深くする (D-21)
     leadBus.gain.setTargetAtTime((phrase==='break'?.08:(.34+c.density*.3))*lv('lead'),tm,T*2);
+    soloBus.gain.setTargetAtTime(.225*lv('soloLine'),tm,T);   // ソロ (D-73)。聴いた結果 0.9 の 25% に下げた
     // フィルタは普段はゆっくり開き気味。イベントが動かしている間は触らない (D-29)
     if(tm>evLeadUntil){
       leadFilt.frequency.setTargetAtTime(leadCutoffBase(),tm,T*4);
@@ -2176,7 +2249,7 @@ const qsRate=key=>{
   const n=parseFloat(v);
   return Number.isFinite(n) ? clamp(n) : 1;
 };
-const forcedSpark=qsRate('spark'), forcedDub=qsRate('dub');
+const forcedSpark=qsRate('spark'), forcedDub=qsRate('dub'), forcedSolo=qsRate('solo');   // ?solo も同じ (D-73)
 /* 開発用。?fill=tom / ?fill=snare でオカズの主役を固定する。
    素のままだとタムが出るまで待つことになり、テストが運と実時間に引きずられる。
    置き場所 (8小節ごと、小節の後ろ半分) は素のままなので、見ている性質は変わらない */
@@ -2328,7 +2401,7 @@ function maybeEvent(bar,time){
    各トラックは16個の強さ (0 なら鳴らさない) を持つ。
    ============================================================ */
 const seq={kick:[],snare:[],clap:[],hat:[],ohat:[],perc1:[],perc2:[],rim:[],bass:[],
-           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[],chop:[],hat32:[],spark:[]};
+           stab:[],ep:[],arp:[],riff:[],fill:[],lead:[],chop:[],hat32:[],spark:[],solo:[]};
 let leadType='sawtooth';   // 16分シーケンスの音色。小節ごとに引き直す
 // オカズが次の小節へはみ出したぶん。次の小節の頭に足される
 let pendingSpill=null;
@@ -2806,6 +2879,77 @@ function planSpark(bar){
   }
 }
 
+/* ---- ソロの出現と旋律 (D-73) ----
+   8小節区間の頭で出すかを決める。出すなら区間のうちの1小節と、弾き始め (小節の頭 / 8分後 / 4分2つ後) を引き、
+   旋律を16分7〜15個ぶんの長さで先に作る。次の小節にかかってよい */
+let soloAt=-1, soloPlan=null, soloSpill=[], soloBarHas=false;
+const SOLO_P={stab:.6, funk:.6, jazz:.3, sustain:.3};
+
+function planSolo(bar){
+  if(bar%8!==0 || phrase==='break' || soloPlan) return;
+  const p = forcedSolo!==null ? forcedSolo : (SOLO_P[SCENES[sceneIdx].group]||0);
+  if(Math.random()>=p) return;
+  soloAt = bar + Math.floor(Math.random()*8);
+  const start = pick([0,2,8]);
+  const span = 7+Math.floor(Math.random()*9);   // 16分7〜15個ぶん
+  // いまの調の音階を、midi 72〜91 に並べる (聴いた結果、8フィートの音域から1オクターブ上げた)
+  const sl=scale(), tn=tonic(), pool=[];
+  for(let m=72;m<=91;m++) if(sl.includes(((m-tn)%12+12)%12)) pool.push(m);
+  const core=new Set(coreNotes(60).map(n=>((n%12)+12)%12));
+  let idx=Math.floor(pool.length*rand(.3,.7));
+  const notes=[];
+  let pos=0;
+  while(pos<span){
+    // 休符。最初の音の前には置かない
+    if(notes.length && Math.random()<.2){ pos+=1+Math.floor(Math.random()*2); continue; }
+    const r=Math.random();
+    const len=Math.min(r<.45?1:r<.8?2:r<.95?3:4, span-pos);
+    // 順次進行を主に、2割ほど2〜4度跳ぶ
+    if(notes.length){
+      const dist=Math.random()<.2 ? 2+Math.floor(Math.random()*3) : 1;
+      let nx=idx+(Math.random()<.5?-dist:dist);
+      if(nx<0 || nx>=pool.length) nx=idx-(nx<0?-dist:dist);   // 端で折り返す
+      idx=clamp(nx,0,pool.length-1);
+    }
+    const step=start+pos;
+    // 拍の頭に来る音は、和音の基本の音へ寄せる
+    if(step%4===0 && !core.has(pool[idx]%12)){
+      for(const d of [1,-1,2,-2]){
+        const k=idx+d;
+        if(k>=0 && k<pool.length && core.has(pool[k]%12)){ idx=k; break; }
+      }
+    }
+    notes.push({abs:step, len, midi:pool[idx], vel:(step%4===0?.95:.8)*rand(.92,1.05), slur:false});
+    pos+=len;
+  }
+  // スラー: 休符を挟まず続く音へは 35% で切らずにつなぐ
+  for(let i=0;i+1<notes.length;i++){
+    if(notes[i].abs+notes[i].len===notes[i+1].abs && Math.random()<.35) notes[i].slur=true;
+  }
+  soloPlan={notes, start, span,
+            glide:Math.random()<.5,                            // ポルタメント (ソロ1回ごと)
+            deepRev:Math.random()<.7,                          // リバーブ深め
+            delay:Math.random()<.6 ? pick([3,6]) : 0};        // 付点8分 / 付点4分 (16分の数)
+}
+
+/* ソロを置く。判定を先に行うので、区間の頭の小節から弾き始めるソロも取りこぼさない */
+function placeSolo(bar){
+  planSolo(bar);
+  seq.solo=new Array(16).fill(null);
+  soloBarHas=false;
+  for(const ev of soloSpill){ seq.solo[ev.step]=ev; soloBarHas=true; }
+  soloSpill=[];
+  if(bar===soloAt && soloPlan && phrase!=='break'){
+    for(const nt of soloPlan.notes){
+      const ev={...nt, plan:soloPlan};
+      if(nt.abs<16) seq.solo[nt.abs]=ev;
+      else soloSpill.push({...ev, step:nt.abs-16});
+    }
+    soloBarHas=true;
+  }
+  if(soloPlan && bar>=soloAt){ soloAt=-1; soloPlan=null; }   // 置いたか、取りこぼしたら捨てる
+}
+
 /* ---- ベースの性格を測る ----
    D-39 (疎ならフェーザー) / D-42 (動かないならフィルタを振る) / D-50 (揺らぎ) の
    判断材料をここでまとめて出す */
@@ -2857,8 +3001,8 @@ function placeDub(bar){
     for(const k of ['kick','snare','clap','hat','ohat','hat32','perc1','perc2','rim'])
       for(let i=dubStart;i<16;i++) seq[k][i]=0;
     // 他のトラックは消しきらず、3割だけ残して薄くする
-    for(const k of ['bass','lead','stab','ep','chop','arp','riff','spark'])
-      for(let i=dubStart;i<16;i++) if(Math.random()>=.3) seq[k][i]=(k==='bass'||k==='lead'||k==='spark')?null:0;
+    for(const k of ['bass','lead','stab','ep','chop','arp','riff','spark','solo'])
+      for(let i=dubStart;i<16;i++) if(Math.random()>=.3) seq[k][i]=(k==='bass'||k==='lead'||k==='spark'||k==='solo')?null:0;
     seq.fill=new Array(16).fill(null);
     pendingSpill=null;
     makeDubFill(bar);
@@ -2875,6 +3019,7 @@ function placeDub(bar){
 function placeDecorations(bar,fillBar){
   placeFill(bar,fillBar);
   placeSpark(bar);
+  placeSolo(bar);   // ソロ (D-73)。ダブより前に置き、ダブに間引かせる
   placeDub(bar);
 }
 
@@ -3068,6 +3213,9 @@ function playStep(i,time){
   // キラキラのリフ (D-48)
   const sp=seq.spark[i];
   if(sp) sparkNote(time,sp.midi,sp.vel);
+  // ソロ (D-73)
+  const so=seq.solo[i];
+  if(so) soloNote(time,so,sw);
   // インダストリアル・ノイズ。小節ではなく通し番号で回すのでポリリズムになる (D-38)
   if(noiseOn && phrase!=='break'){
     const g0=barCount*16+i;
@@ -3547,7 +3695,7 @@ function showProgress(){
   const inScene=barCount-sceneStartBar+1;
   // いまの小節の装飾。ダブを先に見る (ダブの小節ではオカズは置き直されている)
   const deco = dubBar===barCount ? '  dub' : curFillBar ? '  fill' : '';
-  pBarPos.textContent=`${inPhrase}/${PHRASE_BARS}  (scene ${inScene}/${sceneBars})${deco}${loopBar?'  loop':''}`;
+  pBarPos.textContent=`${inPhrase}/${PHRASE_BARS}  (scene ${inScene}/${sceneBars})${deco}${soloBarHas?'  solo':''}${loopBar?'  loop':''}`;
   // 点滅 (D-62)。シーンが変わる直前の小節のシーン名と、押してから乗り換わるまでの next
   sceneNameEl.classList.toggle('blink', running && pendingScene>=0 && barCount===transitionEndBar-1);
   nextBtn.classList.toggle('blink', running && nextPending && pendingScene>=0);
@@ -3801,6 +3949,7 @@ function stopAudio(){
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
   pendingScene=-1; transitionEndBar=-1; seqB=null; pendingSpill=null;
   evLeadUntil=0; nextPending=false;
+  soloAt=-1; soloPlan=null; soloSpill=[]; soloBarHas=false; soloVoice=null;   // ソロ (D-73)
   if(phaserWet){ phaserWet.gain.cancelScheduledValues(ctx.currentTime); phaserWet.gain.setValueAtTime(0,ctx.currentTime); }
   if(drumMixB) endMixFades(ctx.currentTime);
   flushSteps();

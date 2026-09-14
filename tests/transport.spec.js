@@ -188,7 +188,7 @@ test('D-11 の操作がひと通り揃っている', async ({ page }) => {
   await expect(page.locator('#plane')).toHaveCount(0);
   // 個別の音量 (D-54)
   for (const key of ['kick', 'snare', 'clap', 'hat', 'ohat', 'cymbal', 'tom', 'rim', 'perc', 'cowbell',
-                     'bassFunk', 'bass', 'strings', 'chop', 'stab', 'ep', 'lead', 'riff', 'bell', 'bellRatio', 'noise']) {
+                     'bassFunk', 'bass', 'strings', 'chop', 'stab', 'ep', 'lead', 'riff', 'bell', 'bellRatio', 'noise', 'soloLine']) {
     await expect(page.locator('#s_mix_' + key)).toHaveCount(1);
   }
 });
@@ -559,4 +559,14 @@ test('shift で調がずれても、開いた和声の進行は先へ進む', as
     await page.waitForTimeout(500);
   }
   expect(kinds.size).toBeGreaterThanOrEqual(2);
+});
+
+test('?solo でソロが8小節の区間に現れる', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-73。?solo で出現を確実にする。区間の8小節のどこかから弾き始め、その小節の表示に solo が出る
+  await page.goto('/index.html?solo');
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await expect(page.locator('#pbarpos')).toContainText('solo', { timeout: 40000 });
 });

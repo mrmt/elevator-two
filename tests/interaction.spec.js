@@ -159,10 +159,10 @@ test('reset all で既定値に戻り、保存も消える', async ({ page, isMo
 });
 
 test('mixer の音量には SOLO と MUTE がある', async ({ page, isMobile }) => {
-  // D-59。倍率の bell FM ratio には付けない
+  // D-59。倍率の bell FM ratio には付けない。ソロ (D-73) を足して21本
   if (isMobile) await page.locator('.tab[data-tab="param"]').click();
-  await expect(page.locator('#mixer .smbtn.solo')).toHaveCount(20);
-  await expect(page.locator('#mixer .smbtn.mute')).toHaveCount(20);
+  await expect(page.locator('#mixer .smbtn.solo')).toHaveCount(21);
+  await expect(page.locator('#mixer .smbtn.mute')).toHaveCount(21);
   await expect(page.locator('#solo_bellRatio')).toHaveCount(0);
 
   const row = key => page.locator('.param', { has: page.locator(`#s_mix_${key}`) });

@@ -270,6 +270,7 @@
     <ul>
       <li><b>キラキラのリフ</b> — 鋸波と FM のベルを重ねた短い旋律。毎分1〜2回だけ</li>
       <li><b>ダブ</b> — 1小節だけドラムを落として全体をディレイに放り込み、フィルで戻す。electro funk で出やすい</li>
+      <li><b>ソロ</b> — 矩形波の単旋律。8小節ごとに、stab / dark と electro funk では 60%、ほかでは 30% の確率で、区間のどこかから弾き始める。休符やスラーを交え、半分はポルタメントで滑らせる。深いリバーブやステレオディレイが掛かることもある</li>
       <li><b>インダストリアル・ノイズ</b> — 小節に乗らない周期で回る金属音。左右で別の周期を持ち、ポリリズムになる</li>
     </ul>
   </section>
@@ -315,6 +316,7 @@
         <tr><td class="k">harmony</td><td>strings (持続音・アルペジオ・高域のリフ)、chord chop、stab、e.piano、sequence (16分のシーケンス)</td></tr>
         <tr><td class="k">riff</td><td>riff synth (リフの本体)、riff bell (FM のベル)、bell FM ratio (ベルの変調比に掛ける倍率 ×0.5–2)</td></tr>
         <tr><td class="k">texture</td><td>industrial noise</td></tr>
+        <tr><td class="k">solo</td><td>solo (ときどき現れるソロ)</td></tr>
       </tbody>
     </table></div>
     <p>各行の <kbd>S</kbd> は SOLO、<kbd>M</kbd> は MUTE。どれかを SOLO にすると SOLO した音だけが鳴り、MUTE は SOLO より優先される。
@@ -342,7 +344,7 @@ key <b>A dorian +3</b> Cmaj9/D  [sustain lush chop + ep]  bass 3 +phaser +pedal 
       <dt>phrase build → dash (break)</dt>
       <dd>いまのフレーズ。乗り換えが始まると、行き先のシーンと乗り換え方が矢印の後に出る</dd>
       <dt>5/16  (scene 57/64)  fill  loop</dt>
-      <dd>フレーズの何小節目か、シーンの何小節目か。その小節にフィルかダブが入っていれば <code>fill</code> / <code>dub</code>、ループ中は <code>loop</code></dd>
+      <dd>フレーズの何小節目か、シーンの何小節目か。その小節にフィルかダブが入っていれば <code>fill</code> / <code>dub</code>、ソロが鳴っていれば <code>solo</code>、ループ中は <code>loop</code></dd>
       <dt>event filter sweep  @bar 48</dt>
       <dd>最後に起きたイベントと、その小節 (再生を始めてからの通し番号)</dd>
       <dt>dark-bright wave 0.62  41%  / 31min</dt>
@@ -492,6 +494,7 @@ key <b>A dorian +3</b> Cmaj9/D  [sustain lush chop + ep]  bass 3 +phaser +pedal 
     <ul>
       <li><b>Sparkling riff</b> — a short line of saws with an FM bell on top, only once or twice a minute</li>
       <li><b>Dub</b> — for one bar the drums drop and everything is thrown into the delay, then a fill brings it back. Most common in electro funk</li>
+      <li><b>Solo</b> — a single square-wave line. Every eight bars it may enter somewhere in the next stretch (60% in stab / dark and electro funk, 30% elsewhere), with rests and slurs, gliding half the time, sometimes with a deep reverb or a stereo delay</li>
       <li><b>Industrial noise</b> — metallic hits on cycles that ignore the bar line, with different lengths left and right, so they drift into polyrhythm</li>
     </ul>
   </section>
@@ -537,6 +540,7 @@ key <b>A dorian +3</b> Cmaj9/D  [sustain lush chop + ep]  bass 3 +phaser +pedal 
         <tr><td class="k">harmony</td><td>strings (sustained chords, arpeggio and high riff), chord chop, stab, e.piano, sequence (the 16th-note sequence)</td></tr>
         <tr><td class="k">riff</td><td>riff synth (the body), riff bell (the FM bell), bell FM ratio (a ×0.5–2 multiplier on the bell's modulation ratio)</td></tr>
         <tr><td class="k">texture</td><td>industrial noise</td></tr>
+        <tr><td class="k">solo</td><td>solo (the occasional solo line)</td></tr>
       </tbody>
     </table></div>
     <p><kbd>S</kbd> solos a row and <kbd>M</kbd> mutes it. With anything soloed, only soloed sounds play; mute always wins over solo.
@@ -564,7 +568,7 @@ key <b>A dorian +3</b> Cmaj9/D  [sustain lush chop + ep]  bass 3 +phaser +pedal 
       <dt>phrase build → dash (break)</dt>
       <dd>The current phrase. Once a switch is under way, the destination scene and the switching style follow the arrow</dd>
       <dt>5/16  (scene 57/64)  fill  loop</dt>
-      <dd>Bar within the phrase and within the scene; <code>fill</code> or <code>dub</code> when this bar has one; <code>loop</code> while looping</dd>
+      <dd>Bar within the phrase and within the scene; <code>fill</code> or <code>dub</code> when this bar has one; <code>solo</code> when a solo is playing; <code>loop</code> while looping</dd>
       <dt>event filter sweep  @bar 48</dt>
       <dd>The last event and the bar it happened on, counted from when you pressed play</dd>
       <dt>dark-bright wave 0.62  41%  / 31min</dt>

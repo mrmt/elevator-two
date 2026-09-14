@@ -482,3 +482,41 @@ test('e.piano は正弦波を同じ周波数の正弦波で変調して鳴る', 
   await page.locator('#play').click();
   await expect.poll(() => page.evaluate(() => window.__fm11), { timeout: 20000 }).toBeGreaterThan(0);
 });
+
+test('ソロは矩形波に、1オクターブ下の矩形波を重ねて鳴る', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-73。同じ時刻に立つ矩形波の組のうち、片方がソロの音域 (midi 72〜91) で、もう片方がちょうど半分の周波数のもの。
+  // ほかの矩形波 (ベースのサブ、カウベル、リム) はこの組にならない
+  await page.addInitScript(() => {
+    window.__sq = [];
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const start = o.start.bind(o);
+      o.start = function (when) {
+        // 予約で与えた周波数は .value に遅れて反映されるので、立った時点の値を記録する。
+        // ソロの声部は最初の音の周波数で初期化してから立てている
+        if (o.type === 'square') window.__sq.push({ t: Math.round(when * 1000), f: o.frequency.value });
+        return start(when);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html?solo');
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  const found = async () => page.evaluate(() => {
+    const byTime = {};
+    for (const x of window.__sq) (byTime[x.t] ||= []).push(x.f);
+    for (const list of Object.values(byTime)) {
+      if (list.length < 2) continue;
+      for (const fa of list) for (const fb of list) {
+        const midi = 69 + 12 * Math.log2(fa / 440);
+        if (midi > 71.5 && midi < 91.5 && Math.abs(fb * 2 - fa) < 0.5) return true;
+      }
+    }
+    return false;
+  });
+  await expect.poll(found, { timeout: 45000, intervals: [1000] }).toBe(true);
+});
