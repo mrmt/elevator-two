@@ -294,6 +294,11 @@
     /* ホームのアイコン (D-69) を足したぶん、タイトルの字間を詰めて1行に収める */
     .mark{letter-spacing:.3em}
     .home{width:.95rem;height:.95rem}
+    /* シーン名が長いとき (と、フォントの幅によっては) ヘッダーが2行に落ちる。
+       1行を保ち、タイトル・バージョン・再生ボタンは縮めず、はみ出すシーン名だけを省略記号で切る (D-69) */
+    header{flex-wrap:nowrap;align-items:center}
+    .mark,.ver{flex:none;white-space:nowrap}
+    .scene{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ver,.scene{font-size:.6rem;letter-spacing:.12em}
     .transport{gap:.4rem}
     .tbtn{padding:.5rem .8rem}
