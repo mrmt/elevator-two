@@ -448,6 +448,8 @@ const P = {
   glitch:    {def:.90},
   evolution: {def:.90},
   mutate:    {def:.80},
+  shift:     {def:0},     // 平行移動の転調の強さ (D-65)。0 で従来どおり
+  lush:      {def:0},     // 開いた和声の強さ (D-66)。0 で従来どおり
 };
 
 /* ============================================================
@@ -675,7 +677,23 @@ const NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 let keyPc=9;   // 主音のピッチクラス。既定は A
 
 // 五度圏で隣へ動く。同じ調に留まることもある
-function moveKey(){ keyPc=(keyPc+pick([5,7,0,5,7,2]))%12; }
+function moveKey(){
+  // 平行移動の転調 (D-65) が強いほど、3度や短6度の遠い調へも移る
+  const far = Math.random() < current.shift*.5;
+  keyPc=(keyPc+pick(far ? [3,9,4,8] : [5,7,0,5,7,2]))%12;
+}
+/* ---- 平行移動の転調 (D-65) ----
+   shiftOff はシーンの調 keyPc からの一時的なずれ (半音)。和音・ベース・シーケンス・アルペジオが
+   揃って平行に動くよう、音程を出す箇所は keyPc を直接読まず、必ず tonic() を通す。
+   pedalPc / pedalUntilBar は、和音が変わってもベースだけ前の根音に留めるペダル */
+let shiftOff=0, pedalPc=0, pedalUntilBar=-1;
+const tonic = () => ((keyPc+shiftOff)%12+12)%12;
+/* 調だけが動いたときに、進行の位置は変えずに和音を組み直させる印。
+   chordAt を戻すと「シーンに入った直後」と区別できず、進行が頭へ巻き戻ってしまう */
+let chordRevoice=false;
+// 0 からの一歩。3度の横滑りを主に、全音下げと4度・5度を少し混ぜる
+const SHIFT_STEPS=[3,3,3,-3,-3,-3,4,4,4,-4,-4,-4,-2,-2,5,7];
+const wrapShift = x => ((x+6)%12+12)%12-6;   // -6〜+5 に収める
 const scale = () => SCALES[SCENES[sceneIdx].group];
 const mtof = m => 440*Math.pow(2,(m-69)/12);
 
@@ -1048,7 +1066,16 @@ const QUALITIES={
   add9:[0,4,7,14],
   sus2:[0,2,7,14],
   x13: [0,4,10,14,21],
+  // 開いた和声 (D-66) で使う
+  maj7s11:[0,4,7,11,18],
+  mM9:    [0,3,7,11,14],
+  sus9:   [0,5,7,10,14],   // 7sus4(9)
+  m69:    [0,3,7,9,14],
+  maj13:  [0,4,7,11,14,21],
+  q4:     [0,5,10,15,20],  // 4度の積み重ね
 };
+// 表示用の名前。キーのままで読めるものは持たない
+const Q_LABEL={x13:'13', maj7s11:'maj7#11', mM9:'mMaj9', sus9:'7sus4(9)', m69:'m6/9', q4:'(4ths)'};
 // 進行。回路ごとに持つ。スタブは進行しない (D-9)
 const PROGS={
   stab:    [ [[0,'m9']], [[0,'m9'],[10,'m7']] ],
@@ -1057,32 +1084,104 @@ const PROGS={
   funk:    [ [[0,'m7']], [[0,'m7'],[5,'m7']] ],
 };
 // 和音が変わる間隔 (小節)。ジャズは細かく、スタブはほぼ動かない
-const CHORD_BARS={stab:16, sustain:8, jazz:4, funk:8};
+const CHORD_BARS={stab:8, sustain:4, jazz:2, funk:4};   // D-67 で従来の半分にした
+
+/* ---- 開いた和声 (D-66) ----
+   e.piano 回路 (jazz) と strings 回路 (sustain) だけが使う。各要素は [度数, 種類, ベースの度数]。
+   ベースの度数を持つ和音は分数コードで、ベースは根音ではなくその音を踏む */
+const LUSH_PROGS={
+  sustain: [
+    [[0,'maj9'],[11,'maj9'],[9,'m9'],[2,'sus9']],          // 同じ種類を半音下げ、着地をぼかす
+    [[0,'maj9'],[2,'maj9',0],[10,'maj9',0],[0,'maj13']],   // 低音を据えて上の和音だけ入れ替える
+    [[0,'maj7s11'],[5,'m9'],[0,'maj9'],[5,'mM9']],         // 長調の中で短調の iv を借りる
+    [[0,'maj13'],[9,'m9'],[4,'m9'],[5,'maj7s11']],         // 根音が下がっていく
+  ],
+  jazz: [
+    [[0,'m11'],[11,'m11'],[10,'m11'],[8,'maj7s11']],       // 同じ種類の平行移動
+    [[0,'mM9'],[0,'m9'],[0,'m69'],[0,'m9']],               // 根音を据えて内声だけ半音ずつ動かす
+    [[0,'q4'],[2,'q4'],[3,'q4'],[5,'q4']],                 // 4度和音の平行移動
+    [[0,'m9'],[5,'sus9'],[10,'maj7s11'],[3,'maj9',5]],     // 分数コードで着地をぼかす
+  ],
+};
+const LUSH_CHORD_BARS=4;   // 開いた和声の中ではゆっくり。D-67 で8から半分に
+let lushOn=false;          // いまの進行が開いた和声か
+// 開いた和声を使うかを引き直す。変わったら true を返す
+function rollLush(){
+  const was=lushOn, c=circuit();
+  lushOn = (c==='jazz' || c==='sustain') && Math.random()<current.lush;
+  return was!==lushOn;
+}
+const chordBars = () => lushOn ? LUSH_CHORD_BARS : CHORD_BARS[circuit()];
 
 const circuit = () => SCENES[sceneIdx].group;
 
-let prog=PROGS.stab[0], progPos=0, chordDeg=0, chordQual='m9', chordAt=-999;
+let prog=PROGS.stab[0], progPos=0, chordDeg=0, chordQual='m9', chordBassDeg=null, chordAt=-999;
 
-function pickProg(){
+function pickProg({roll=true}={}){
   const c=circuit();
-  prog=pick(PROGS[c]);
+  if(roll) rollLush();
+  prog=pick(lushOn ? LUSH_PROGS[c] : PROGS[c]);
   progPos=0;
   setChord();
 }
 function setChord(){
-  const [deg,q]=prog[progPos%prog.length];
-  chordDeg=deg; chordQual=q;
+  const [deg,q,bass]=prog[progPos%prog.length];
+  chordDeg=deg; chordQual=q; chordBassDeg=bass ?? null;
 }
 // 和音の構成音を midi で返す。base は最低音のおおよその位置
 function chordNotes(base){
   const iv=QUALITIES[chordQual]||QUALITIES.m9;
-  const root=base+keyPc+chordDeg;
+  const root=base+tonic()+chordDeg;
   return iv.map(i=>root+i);
+}
+/* 開いた配置 (D-66)。根音を低く、3度・7度 (と sus の4度、m6/9 の6度) を1オクターブ上、
+   テンションをさらに上に置く。midi 60 未満で隣り合う音が3半音より近ければ、上の音を1オクターブ上げる。
+   4度和音はもともと開いているので積んだまま使う */
+const GUIDE_PC=[3,4,5,10,11];
+function voicedNotes(base){
+  if(chordQual==='q4') return chordNotes(base);
+  const iv=QUALITIES[chordQual]||QUALITIES.m9;
+  const root=base+((tonic()+chordDeg)%12);
+  const out=[root];
+  for(const i of iv.slice(1)){
+    const pc=i%12;
+    const guide = GUIDE_PC.includes(pc) || (pc===9 && chordQual==='m69');
+    out.push(pc===7 ? root+7 : guide ? root+12+pc : root+24+pc);
+  }
+  out.sort((a,b)=>a-b);
+  for(let k=1;k<out.length;k++){
+    while(out[k]<60 && out[k]-out[k-1]<3) out[k]+=12;
+    out.sort((a,b)=>a-b);
+  }
+  return [...new Set(out)];
+}
+/* 声部の運び (D-66)。声部の数が同じなら、各声部を前の音に一番近いオクターブへ置く。
+   根音は動かさない。並びの順と、低い音域の間隔の決まりは崩さない */
+function leadVoices(prev,next){
+  if(!prev || prev.length!==next.length) return next;
+  const out=[next[0]];
+  for(let k=1;k<next.length;k++){
+    let best=null;
+    for(const c of [next[k]-12,next[k],next[k]+12]){
+      if(c<=out[k-1]) continue;
+      if(c<60 && c-out[k-1]<3) continue;
+      if(best===null || Math.abs(c-prev[k])<Math.abs(best-prev[k])) best=c;
+    }
+    out.push(best ?? next[k]);
+  }
+  return out;
+}
+
+/* テンションを除いた基本の音 (D-66)。細かく刻む音 (アルペジオ・高域リフ・リフ) に使う。
+   開いた和声のときだけ絞る。そうでなければ従来どおり全部の構成音 */
+function coreNotes(base){
+  if(!lushOn) return chordNotes(base);
+  return chordNotes(base).filter((_,k)=>(QUALITIES[chordQual]||QUALITIES.m9)[k]<12);
 }
 // ルートを省いて3度と7度を中音域へ寄せた積み方 (D-9 のジャズ回路)
 function rootlessNotes(base){
   const iv=(QUALITIES[chordQual]||QUALITIES.maj9).slice(1);
-  const root=base+keyPc+chordDeg;
+  const root=base+tonic()+chordDeg;
   return iv.map(i=>root+(i%12)+((i>=12)?12:0)).sort((a,b)=>a-b);
 }
 
@@ -1375,35 +1474,83 @@ const BASS_PITCH_MOD_P=.25;
 let padChop=false;
 
 let padVoices=[];
+/* 内声の半音の動き (D-66)。伸ばしている和音の内声を1つ選び、1小節ごとに半音ずつ動かす。
+   和音の間隔を半分にしたので (D-67)、同じ比率で詰めた */
+function padInnerLine(time){
+  const v0=padVoices[0];
+  if(!lushOn || !v0 || v0.notes.length<3 || Math.random()>=current.lush*.6) return;
+  const k=1+Math.floor(Math.random()*(v0.notes.length-2));   // 根音と最上声は動かさない
+  const dir=Math.random()<.5 ? -1 : 1;
+  const barSec=stepDur()*16, span=chordBars()*barSec;
+  for(let j=1;j<=3 && j*barSec<span;j++){
+    const at=time+j*barSec;
+    padVoices.forEach((v,layer)=>{
+      for(const o of v.osc[k]) o.frequency.setValueAtTime(mtof(v.notes[k]+dir*j+layer*12),at);
+    });
+  }
+}
 function padRebuild(time){
   if(!padLayer.length) return;
-  const xf=1.4;   // 前の和音との重なり。切り替えの継ぎ目を出さない
+  // 開いた和声 (D-66): 声部の数が変わらなければ、入れ替えずに各声部を滑らせる
+  if(lushOn && padVoices.length===2){
+    const tones=leadVoices(padVoices[0].notes, voicedNotes(48));
+    if(tones.length===padVoices[0].notes.length){
+      padVoices.forEach((v,layer)=>{
+        tones.forEach((n,k)=>{
+          for(const o of v.osc[k]){
+            o.frequency.cancelScheduledValues(time);
+            o.frequency.setTargetAtTime(mtof(n+layer*12),time,.12);
+          }
+        });
+        v.notes=tones;
+      });
+      padInnerLine(time);
+      return;
+    }
+  }
+  // 前の和音との重なり。切り替えの継ぎ目を出さない。strings の開いた和声では立ち上がりを遅くする
+  const stringsLush = lushOn && circuit()==='sustain';
+  const xf = stringsLush ? 2.4 : 1.4;
   for(const v of padVoices){
     v.g.gain.cancelScheduledValues(time);
     v.g.gain.setValueAtTime(v.g.gain.value,time);
     v.g.gain.linearRampToValueAtTime(.0001,time+xf);
-    for(const o of v.osc) try{ o.stop(time+xf+.05); }catch(e){}
+    for(const o of v.osc.flat()) try{ o.stop(time+xf+.05); }catch(e){}
+    if(v.lfo) try{ v.lfo.stop(time+xf+.05); }catch(e){}
     disposeAt(v.g,time+xf+.2);
   }
   padVoices=[];
-  const tones=chordNotes(48);
+  const tones = lushOn ? voicedNotes(48) : chordNotes(48);
+  // strings の開いた和声には、遅れて深くなる細いビブラートを掛ける
+  let lfo=null, lg=null;
+  if(stringsLush){
+    lfo=ctx.createOscillator(); lg=ctx.createGain();
+    lfo.type='sine'; lfo.frequency.value=rand(4.6,5.4);
+    lg.gain.setValueAtTime(0,time+.8);
+    lg.gain.linearRampToValueAtTime(6,time+1.8);   // セント
+    lfo.connect(lg); lfo.start(time);
+  }
   for(let layer=0;layer<2;layer++){
     const g=ctx.createGain(); g.gain.value=.0001;
     g.connect(padLayer[layer]);
-    const osc=[];
+    const osc=[];   // 声部ごとに [デチューン2本]
     for(const n of tones){
-      const f=mtof(n+layer*12);
+      const f=mtof(n+layer*12), pair=[];
       for(const det of [-6,6]){
         const o=ctx.createOscillator();
         o.type = layer===0 ? 'sawtooth' : 'triangle';
         o.frequency.value=f; o.detune.value=det;
-        o.connect(g); o.start(time); osc.push(o);
+        if(lg) lg.connect(o.detune);
+        o.connect(g); o.start(time); pair.push(o);
       }
+      osc.push(pair);
     }
     g.gain.setValueAtTime(.0001,time);
     g.gain.linearRampToValueAtTime(.8/tones.length,time+xf);
-    padVoices.push({g,osc});
+    padVoices.push({g,osc,notes:tones,lfo:layer===0?lfo:null});
   }
+  if(lg) disposeAt(lg,time+600);   // 次の入れ替えで lfo と一緒に止まる。切り離しは十分あとで
+  padInnerLine(time);
 }
 
 // アルペジオと高域リフ。短い撥弦のような音
@@ -1489,73 +1636,70 @@ function stabHit(time,vel){
 }
 
 /* ---- ジャズ / ボッサ回路の発音 (D-9) ----
-   FM のエレピ。変調指数を落としながら鳴らすと鍵盤らしい減衰になる */
-/* Juno-106 のような、みずみずしい矩形波の音 (D-40)。
-   パルス波 (鋸とその遅延の差) にパルス幅変調を掛け、鋸と1オクターブ下の
-   サブ矩形を足す。2段のローパスを包絡で開いて閉じる。
-   後段のコーラスで厚みを作るので、ここでは素のまま出す */
+   Rhodes 系のエレピ (D-68)。正弦波を同じ周波数の正弦波で変調する FM で作る。
+   - 胴: 比 1:1 の変調。頭で深く、約60msで浅くなる。深さは強さに比例し、
+     弱く弾くと丸く、強く弾くと明るく歪む (bark)
+   - 打鍵のカチッ: 比 14 の変調を頭の約12msだけ掛ける
+   - 減衰は音価の24% (最大150ms)、最後の20msは直線で切る。D-41 の短さから少しだけ伸ばした (D-68)
+   厚みは後段の Juno のコーラス (D-40) が作る。
+   音量は、以前のパルス波の音と同じ和音を書き出して RMS を揃えた (係数 0.68)。
+   変調を深くしてアタックを強める調整は、ピチカートの擦れのように聞こえたので戻した (D-68) */
 function epNote(time,midi,vel,dec){
   const f=mtof(midi);
-  const sum=ctx.createGain(); sum.gain.value=.42;
   const pn=ctx.createStereoPanner(); pn.pan.value=rand(-.15,.15);
-  const nodes=[sum,pn];
 
-  // DCO: パルス波。遅延の長さがパルス幅になり、そこを LFO で揺らす
-  const a=ctx.createOscillator(), b=ctx.createOscillator();
-  for(const o of [a,b]){ o.type='sawtooth'; o.frequency.value=f; }
-  const d=ctx.createDelay(.05), inv=ctx.createGain(); inv.gain.value=-1;
-  const half=.5/f;
-  d.delayTime.value=half*rand(.62,1);
-  const plfo=ctx.createOscillator(), pg=ctx.createGain();
-  plfo.type='sine'; plfo.frequency.value=rand(.25,.8); pg.gain.value=half*.38;
-  plfo.connect(pg).connect(d.delayTime);
-  a.connect(sum); b.connect(d).connect(inv).connect(sum);
-  nodes.push(a,b,d,inv,plfo,pg);
+  // 搬送波
+  const car=ctx.createOscillator(); car.type='sine'; car.frequency.value=f;
 
-  // 鋸を薄く重ねて芯を出す
-  const saw=ctx.createOscillator(), sawG=ctx.createGain();
-  saw.type='sawtooth'; saw.frequency.value=f; saw.detune.value=rand(-6,6);
-  sawG.gain.value=.34; saw.connect(sawG).connect(sum);
-  nodes.push(saw,sawG);
+  // 胴の変調 (1:1)。強く弾くほど深い
+  const mod=ctx.createOscillator(), mg=ctx.createGain();
+  mod.type='sine'; mod.frequency.value=f;
+  mg.gain.setValueAtTime(f*(.4+vel*1.6),time);
+  mg.gain.exponentialRampToValueAtTime(Math.max(f*.12,1),time+.06);
+  mod.connect(mg).connect(car.frequency);
 
-  // サブ。1オクターブ下の矩形 (D-27)
-  const sub=ctx.createOscillator(), subG=ctx.createGain();
-  sub.type='square'; sub.frequency.value=f/2;
-  subG.gain.value=.58; sub.connect(subG).connect(sum);
-  nodes.push(sub,subG);
+  // 打鍵のカチッ (14倍)。ごく短く
+  const tine=ctx.createOscillator(), tg=ctx.createGain();
+  tine.type='sine'; tine.frequency.value=f*14;
+  tg.gain.setValueAtTime(f*(.3+vel*.9),time);
+  tg.gain.exponentialRampToValueAtTime(1,time+.012);
+  tine.connect(tg).connect(car.frequency);
 
-  // 立ち下がりの長さ。短く切って歯切れを出す (D-41)
-  const fall=Math.min(dec*.18,.11);
+  // 立ち下がりの長さ。短く切って歯切れを出す (D-41)。D-68 で 18%・最大110ms から少し伸ばした
+  const fall=Math.min(dec*.24,.15);
+  const G=.68;   // 以前の音と RMS を揃える係数 (D-68)
 
-  // VCF: 24dB 相当に2段。VCA と同じ速さで閉じる
-  const f1=ctx.createBiquadFilter(), f2=ctx.createBiquadFilter();
-  f1.type='lowpass'; f2.type='lowpass'; f1.Q.value=3.4; f2.Q.value=.7;
-  // 立ち上がりは大きく開けてから閉じる。開きが足りないとブラスのように膨らんで聞こえる (D-58)
-  const base=Math.min(f*1.9+260,3000), peak=Math.min(base*7,14000);
-  for(const fl of [f1,f2]){
-    fl.frequency.setValueAtTime(peak,time);
-    fl.frequency.exponentialRampToValueAtTime(base,time+fall);
-    // 音が消えるのと同時に閉じきる。ここが開いたままだと歯切れが出ない
-    fl.frequency.exponentialRampToValueAtTime(Math.max(base*.28,180),time+fall+.02);
-  }
-  nodes.push(f1,f2);
-
-  // VCA: 立ち上がりは 1.5ms の直線、短いディケイで落として最後は直線で切る。
-  // 指数で立ち上げると頭がもたつき、ブラスのような膨らみになる (D-58)
+  // VCA: 立ち上がりは 2ms の直線、短いディケイで落として最後は直線で切る
   const amp=ctx.createGain();
   amp.gain.setValueAtTime(0,time);
-  amp.gain.linearRampToValueAtTime(Math.max(vel*.26,.0002),time+.0015);
-  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.02,.0002),time+fall);
+  amp.gain.linearRampToValueAtTime(Math.max(vel*.26*G,.0002),time+.002);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.02*G,.0002),time+fall);
   amp.gain.linearRampToValueAtTime(0,time+fall+.02);   // 立ち下がりを鋭く
-  nodes.push(amp);
 
-  sum.connect(f1).connect(f2).connect(amp).connect(pn).connect(epBus);
-  for(const o of [a,b,saw,sub,plfo]){ o.start(time); o.stop(time+dec+.06); }
-  for(const n of nodes) disposeAt(n,time+dec+.14);
+  car.connect(amp).connect(pn).connect(epBus);
+  for(const o of [car,mod,tine]){ o.start(time); o.stop(time+dec+.06); }
+  for(const n of [car,mod,mg,tine,tg,amp,pn]) disposeAt(n,time+dec+.14);
+}
+
+/* 打鍵の低い衝撃音 (D-68)。ハンマーが当たる手応えだけを足し、明るさには触らない。
+   和音に1つだけ鳴らす (声部ごとに鳴らすと重なって太りすぎる)。
+   三角波にしてあるのは、正弦波の音程の予約でタムを数える試験に紛れさせないため */
+function epThump(time,vel){
+  const o=ctx.createOscillator(), g=ctx.createGain(), pn=ctx.createStereoPanner();
+  o.type='triangle';
+  o.frequency.setValueAtTime(170,time);
+  o.frequency.exponentialRampToValueAtTime(80,time+.02);
+  pn.pan.value=rand(-.1,.1);
+  decayTo(g.gain,time,vel*.14,.028,.001);
+  o.connect(g).connect(pn).connect(epBus);
+  o.start(time); o.stop(time+.06);
+  disposeAt(o,time+.1); disposeAt(g,time+.1); disposeAt(pn,time+.1);
 }
 
 function epChord(time,vel){
-  const notes=rootlessNotes(60);
+  // 開いた和声 (D-66) では根音を省いた開いた配置、そうでなければ従来の積み方
+  const notes = lushOn ? voicedNotes(48).slice(1) : rootlessNotes(60);
+  epThump(time,vel);   // 打鍵の低い衝撃音 (D-68)
   // 伸ばさず歯切れよく切る (D-41)
   notes.forEach((n,i)=>epNote(time+i*.006,n,vel*(i===0?1:.8),.30));
 }
@@ -2041,7 +2185,8 @@ function enterScene(idx,{manual=false,keepKey=false}={}){
     if(pendingScene>=0 && transitionMode==='mix' && ctx) endMixFades(ctx.currentTime);
     pendingScene=-1; transitionEndBar=-1;
   }
-  if(!keepKey) moveKey();   // キーはシーンごとに五度圏で近い調へ移る (D-9)
+  if(!keepKey){ moveKey(); shiftOff=0; }   // キーはシーンごとに五度圏で近い調へ移る (D-9)。平行移動も戻す
+  pedalUntilBar=-1;
   reseedPattern();    // 並びも引き直す。前のシーンの模様を持ち越さない
   pickProg();         // 回路が変わるので和音の進行も選び直す
   // 陽と electro funk では刻む音になりやすく、陰では持続する音になりやすい
@@ -2089,10 +2234,17 @@ function nextPhrase(){
   const prev=phrase;
   let p=choosePhrase();
   if(prev==='build' && p==='build' && Math.random()<.6) p='drop';
+  // 積み上げから戻しへ抜ける頭で、調ごと全音上げる (D-65)。和音は同じ度数のまま組み直す
+  if(prev==='build' && p==='drop' && Math.random()<current.shift*.8){
+    keyPc=(keyPc+2)%12;
+    chordRevoice=true;
+  }
   if(prev==='break' && p==='break') p='drop';
   phrase=p; phraseStartBar=barCount;
   phraseLen = p==='break' ? BREAK_BARS : PHRASE_BARS;   // ブレイクだけは1小節で抜ける
   reseedPattern();
+  // 開いた和声 (D-66) を引き直し、変わったら進行ごと選び直す
+  if(chordAt>-900 && rollLush()){ pickProg({roll:false}); chordAt=-999; }
   // ジャズ / ボッサ回路は主役シーンだけでなく、他のシーンへも短く差し込む (D-9)
   epGuest = circuit()!=='jazz' && phrase!=='break' && Math.random()<.18;
   showProgress();
@@ -2209,7 +2361,9 @@ function bassBar(bar,R,kickPat,scIdx,phr){
 
   // 和音のルートに合わせる。基準は C (midi 24) から数える。
   // ここを12の倍数にしておかないと、鳴る音名が調とずれる
-  let root=24+keyPc+(chordDeg%12);
+  // ペダル中は前の根音 (D-65)、分数コードならその低音 (D-66)
+  const slash = chordBassDeg!=null && !(bar<pedalUntilBar);
+  let root=24+(bar<pedalUntilBar ? pedalPc : tonic()+((slash ? chordBassDeg : chordDeg)%12));
   while(root<31) root+=12;   // 低すぎると芯が消えるので、音域は 31〜42 に収める
   while(root>42) root-=12;
   const iv=QUALITIES[chordQual]||QUALITIES.m9;
@@ -2249,7 +2403,7 @@ function bassBar(bar,R,kickPat,scIdx,phr){
   for(let n=0;n<hits.length;n++){
     const i=hits[n];
     let deg=0;
-    if(i!==0 && R()<moveP){
+    if(i!==0 && !slash && R()<moveP){   // 分数コードでは低音を動かさない
       // 和音から逸れることもあるが、音階の中から選ぶので調からは外れない
       deg = R()<OFF_CHORD_P ? sl[Math.floor(R()*sl.length)] : alt;
     }
@@ -2402,7 +2556,7 @@ function buildBar(bar,scIdx,phr,seed,fillBar){
   const lead=new Array(16).fill(null);
   if(!quiet){
     const iv2=QUALITIES[chordQual]||QUALITIES.m9;
-    let lroot=48+keyPc+(chordDeg%12);
+    let lroot=48+tonic()+(chordDeg%12);
     while(lroot<60) lroot+=12;
     while(lroot>71) lroot-=12;
     const palette=[0];
@@ -2575,7 +2729,7 @@ function planSpark(bar){
   sparkAt = bar + (Math.random()<.62 ? 3 : 1);     // 4小節め寄り、たまに2小節め
   // 旋律は和音の構成音だけで作る。順次進行を主に、2割ほど跳ぶ。
   // 調と度数で和音の位置が動くので、4フィートの音域へ畳んでから使う
-  const tones=[...new Set(chordNotes(72).map(n=>{
+  const tones=[...new Set(coreNotes(72).map(n=>{
     while(n<70) n+=12;
     while(n>89) n-=12;
     return n;
@@ -2878,11 +3032,11 @@ function playStep(i,time){
   const L=padLayers();
   if(L>=3 && seq.arp[i]){
     // アルペジオは和音の構成音を順に上る
-    const tones=chordNotes(60);
+    const tones=coreNotes(60);
     padPluck(time,tones[arpPos++%tones.length],2,'sawtooth',.22,seq.arp[i]);
   }
   if(L>=4 && seq.riff[i]){
-    const tones=chordNotes(72);
+    const tones=coreNotes(72);
     padPluck(time,tones[(i*3)%tones.length],3,'square',.16,seq.riff[i]*.8);
   }
 
@@ -2999,13 +3153,26 @@ function onBar(bar,time){
   const early = phraseLen>BREAK_BARS && inPhrase>=8 && inPhrase%8===0
                 && Math.random()<current.evolution*.4;
   if((inPhrase>=phraseLen || early) && pendingScene<0) nextPhrase();
+  // 平行移動の転調 (D-65)。8小節の節目で、形を保ったまま根音をずらす。遷移中は動かさない。
+  // ずらしたら、進行の位置はそのままに和音を組み直す
+  if(pendingScene<0 && bar>0 && (bar-phraseStartBar)%8===0 && Math.random()<current.shift){
+    shiftOff = (shiftOff!==0 && Math.random()<.5) ? 0 : wrapShift(shiftOff+pick(SHIFT_STEPS));
+    chordRevoice=true;
+  }
   // 和音を進める。間隔は回路ごとに違い、スタブはほとんど動かない (D-9)
-  if(bar-chordAt>=CHORD_BARS[circuit()]){
+  if(bar-chordAt>=chordBars()){
     // シーンに入った直後は進行の1つ目から始める。そこで進めると頭を飛ばしてしまう
-    if(chordAt>-900) progPos++;
+    if(chordAt>-900){
+      // ペダル (D-65)。和音が変わっても、ベースだけ前の根音に1小節留める (D-67 で2から半分に)
+      if(Math.random()<current.shift*.5){ pedalPc=(tonic()+chordDeg)%12; pedalUntilBar=bar+1; }
+      progPos++;
+    }
     setChord(); chordAt=bar;
     padRebuild(time);
+  }else if(chordRevoice){
+    padRebuild(time);   // 和音は同じ度数のまま、動いた調で組み直す
   }
+  chordRevoice=false;
   regenerate(bar);
   if(bar===dubBar) fireDub(time);   // ダブ (D-49)。音の側の仕掛けはここから
   // DJ ミックス風の遷移では、同じ小節に対して新シーンぶんの並びも作る (D-5 方式3)
@@ -3190,6 +3357,8 @@ const PARAM_UI={
   glitch:   {label:'glitch',      tip:'How often glitch events fire'},
   evolution:{label:'evolution',   tip:'Scene length and phrase transition speed. Higher moves on sooner.'},
   mutate:   {label:'mutate',      tip:'Probability that the rhythm is rewritten'},
+  shift:    {label:'shift',       tip:'Parallel key shifts, step-ups at the climax and pedal bass. 0 keeps the moves by fifths.'},
+  lush:     {label:'lush',        tip:'Open, tension-rich voicings with smooth voice leading in the e.piano and strings circuits.'},
 };
 function paramSlider(host,key){
   inputs[key]=addSlider(host,{id:key, ...PARAM_UI[key], min:0, max:1, step:.005, value:target[key],
@@ -3261,7 +3430,8 @@ const controlBody=mixGroup('control',ctlRowEl,monitorEl);
   col.append(h, nextBtn, loopBtn);
 }
 for(const [title,keys] of [['character',['yy','density','weight','drive','space']],
-                           ['motion',['glitch','evolution','mutate']]]){
+                           ['motion',['glitch','evolution','mutate']],
+                           ['tonality',['shift','lush']]]){
   const g=mixSub(controlBody,title);
   for(const k of keys) paramSlider(g,k);
 }
@@ -3336,8 +3506,9 @@ function showProgress(){
     : `${EVENT_LABEL[lastEvent]||lastEvent}  @bar ${lastEventBar}`;
   const yy=waveYY(wavePos);
   pWave.textContent=`${yy.toFixed(2)}  ${(wavePos*100).toFixed(0)}%  / ${Math.round(wavePeriod/60)}min`;
-  pKey.textContent=`${NOTE_NAMES[keyPc]} ${MODE_LABEL[SCENES[sceneIdx].group]}`;
-  const q=chordQual==='x13'?'13':chordQual;
+  pKey.textContent=`${NOTE_NAMES[tonic()]} ${MODE_LABEL[SCENES[sceneIdx].group]}${shiftOff ? ' '+(shiftOff>0?'+':'')+shiftOff : ''}`;
+  const q=(Q_LABEL[chordQual]||chordQual)
+    + (chordBassDeg!=null ? '/'+NOTE_NAMES[(tonic()+chordBassDeg)%12] : '');
   const mode = (circuit()==='sustain'||circuit()==='funk') && padChop ? ' chop' : '';
   // ノイズ層の周期も出す。ポリリズムがどう回っているかはここでしか分からない
   const nz = noiseOn ? '  ' + 'noise ' + noiseGens.map(g=>g.len).join('/') : '';
@@ -3345,8 +3516,9 @@ function showProgress(){
   const bs = `  bass ${bassNotes}`
     + (bassSparse()?' +phaser':'')
     + (bassWobble?' +wobble':'')
-    + (bassMod?' +vibrato':'');
-  pChord.textContent=`${NOTE_NAMES[(keyPc+chordDeg)%12]}${q}  [${CIRCUIT_LABEL[circuit()]}${mode}${epGuest?' + ep':''}]${bs}${nz}`;
+    + (bassMod?' +vibrato':'')
+    + (barCount<pedalUntilBar?' +pedal':'');
+  pChord.textContent=`${NOTE_NAMES[(tonic()+chordDeg)%12]}${q}  [${CIRCUIT_LABEL[circuit()]}${lushOn?' lush':''}${mode}${epGuest?' + ep':''}]${bs}${nz}`;
 }
 
 /* ---- monitor の波形 (D-36 / D-61) ----
