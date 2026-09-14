@@ -96,7 +96,7 @@ test('「次へ」でシーンが変わる', async ({ page }) => {
 
 test('一覧から選ぶとそのシーンになる', async ({ page }) => {
   const btn = page.locator('.scenebtn').nth(9);   // 鋼 steel
-  const name = await btn.locator('span').first().textContent();
+  const name = (await btn.textContent()).trim();
   await btn.click();
   await expect(page.locator('#scenename')).toHaveText(name);
   await expect(btn).toHaveAttribute('aria-pressed', 'true');
@@ -110,7 +110,7 @@ test('スライダーを触ると (edit) が付く', async ({ page }) => {
 
 test('シーンごとに使うハーモニー回路が変わる', async ({ page }) => {
   // D-8 のとおり、3回路のどれを鳴らすかはシーンが決める
-  const cases = [[0, 'スタブ'], [5, 'エレピ'], [11, '持続'], [7, '持続(薄)']];
+  const cases = [[0, '[stab'], [5, '[e.piano'], [11, '[sustain'], [7, '[sustain (thin)']];
   for (const [idx, label] of cases) {
     await page.locator('.scenebtn').nth(idx).click();
     await expect(page.locator('#pchord')).toContainText(label);
@@ -178,15 +178,18 @@ test('遷移中はBPMが次のシーンへ向かって動く', async ({ page }) 
 
 test('D-11 の操作がひと通り揃っている', async ({ page }) => {
   // 増減があったときに気づけるよう、操作の一覧をここで押さえておく
-  for (const id of ['s_volume', 's_weight', 's_drive', 's_space', 's_glitch',
+  for (const id of ['s_volume', 's_yy', 's_density', 's_weight', 's_drive', 's_space', 's_glitch',
                     's_evolution', 's_mutate', 's_bpm', 's_glide']) {
     await expect(page.locator('#' + id)).toBeVisible();
   }
   await expect(page.locator('#next')).toBeVisible();
-  await expect(page.locator('#plane')).toBeVisible();
-  // XY パッドの2軸は陰陽と密度 (D-11)
-  await expect(page.locator('[data-i18n="pad.yy"]').first()).toBeVisible();
-  await expect(page.locator('[data-i18n="pad.density"]').first()).toBeVisible();
+  // XYパッドは廃止し、陰陽と密度もスライダーにした (D-54)
+  await expect(page.locator('#plane')).toHaveCount(0);
+  // 個別の音量 (D-54)
+  for (const key of ['kick', 'snare', 'clap', 'hat', 'ohat', 'cymbal', 'tom', 'rim', 'perc', 'cowbell',
+                     'bassFunk', 'bass', 'strings', 'chop', 'stab', 'ep', 'lead', 'riff', 'bell', 'bellRatio', 'noise']) {
+    await expect(page.locator('#s_mix_' + key)).toHaveCount(1);
+  }
 });
 
 test('連続変形の遷移ではブレイクを挟まない', async ({ page }) => {
@@ -200,9 +203,9 @@ test('連続変形の遷移ではブレイクを挟まない', async ({ page }) 
 
   const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
   await page.locator('#next').click();
-  await expect(page.locator('#pphrase')).toContainText('連続変形', { timeout: 8000 });
-  // ブレイクにはならない。表示の方式名にも「ブレイク」が入りうるので、矢印より前だけを見る
-  expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('ブレイク');
+  await expect(page.locator('#pphrase')).toContainText('(morph)', { timeout: 8000 });
+  // ブレイクにはならない。表示の方式名にも break が入りうるので、矢印より前だけを見る
+  expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('break');
 
   // 16小節かけて乗り換わる
   await expect.poll(async () => (await page.locator('#scenename').textContent()).replace(' (edit)', ''),
@@ -220,8 +223,8 @@ test('ミックスの遷移では新旧が重なる', async ({ page }) => {
 
   const before = (await page.locator('#scenename').textContent()).replace(' (edit)', '');
   await page.locator('#next').click();
-  await expect(page.locator('#pphrase')).toContainText('ミックス', { timeout: 8000 });
-  expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('ブレイク');
+  await expect(page.locator('#pphrase')).toContainText('(mix)', { timeout: 8000 });
+  expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('break');
 
   await expect.poll(async () => (await page.locator('#scenename').textContent()).replace(' (edit)', ''),
     { timeout: 60000, intervals: [500] }).not.toBe(before);
@@ -233,7 +236,8 @@ test('ブレイクは1小節を超えない', async ({ page }) => {
   test.setTimeout(90000);
   // D-24。フレーズ型の break は出るかどうかが確率なので、確実に起こせる経路で見る。
   // ブレイクを挟む遷移では、乗り換えの直前1小節だけが必ずブレイクになる
-  await page.goto('/index.html?transition=break');
+  // 乗り換え前の小節は40%でダブになりブレイクを置かないので、?dub=0 でオカズ (とブレイク) に固定する (D-62)
+  await page.goto('/index.html?transition=break&dub=0');
   await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
   await page.locator('#s_bpm').fill('140');
   await page.locator('#play').click();
@@ -241,15 +245,15 @@ test('ブレイクは1小節を超えない', async ({ page }) => {
   const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
   const barMs = (60 / bpm) * 4 * 1000;
 
-  // 表示は「フレーズ → 行き先 (方式)」の形で、方式の名前にも「ブレイク」が入る。
+  // 表示は「フレーズ → 行き先 (方式)」の形で、方式の名前にも break が入る。
   // 見たいのはフレーズ側なので、矢印より前だけを取る
   const phrase = async () =>
     (await page.locator('#pphrase').textContent()).split('→')[0].trim();
   await page.locator('#next').click();
 
-  await expect.poll(phrase, { timeout: 30000, intervals: [100] }).toContain('ブレイク');
+  await expect.poll(phrase, { timeout: 30000, intervals: [100] }).toContain('break');
   const t0 = Date.now();
-  await expect.poll(phrase, { timeout: 20000, intervals: [100] }).not.toContain('ブレイク');
+  await expect.poll(phrase, { timeout: 20000, intervals: [100] }).not.toContain('break');
   // 検出の遅れぶんを見込んでも、2小節ぶんは超えない
   expect(Date.now() - t0).toBeLessThan(barMs * 2);
 });
@@ -324,7 +328,7 @@ test('インダストリアル・ノイズの出現率がジャンルごとに�
     let on = 0;
     for (let k = 0; k < tries; k++) {
       await page.locator('.scenebtn').nth(idx).click();
-      if ((await label()).includes('ノイズ')) on++;
+      if ((await label()).includes(' noise ')) on++;
     }
     return on / tries;
   };
@@ -341,7 +345,7 @@ test('ノイズの周期は小節に乗らない', async ({ page }) => {
   let stereo = 0, single = 0;
   for (let k = 0; k < 80; k++) {
     await page.locator('.scenebtn').nth(0).click();   // 潜行。最も出やすい
-    const m = (await page.locator('#pchord').textContent()).match(/ノイズ ([\d/]+)/);
+    const m = (await page.locator('#pchord').textContent()).match(/noise ([\d/]+)/);
     if (!m) continue;
     const parts = m[1].split('/').map(Number);
     parts.length === 2 ? stereo++ : single++;
@@ -363,7 +367,7 @@ test('ベースが疎な小節にはフェーザーが掛かる', async ({ page 
   await page.locator('#play').click();
 
   const read = async () => {
-    const m = (await page.locator('#pchord').textContent()).match(/ベース (\d+)( \+フェーザー)?/);
+    const m = (await page.locator('#pchord').textContent()).match(/bass (\d+)( \+phaser)?/);
     return m && { n: Number(m[1]), ph: !!m[2] };
   };
   await expect.poll(async () => (await read())?.n, { timeout: 15000 }).toBeGreaterThan(0);
@@ -384,7 +388,7 @@ test('ベースが密な小節にはフェーザーが掛からない', async ({
   await page.locator('#play').click();
 
   const read = async () => {
-    const m = (await page.locator('#pchord').textContent()).match(/ベース (\d+)( \+フェーザー)?/);
+    const m = (await page.locator('#pchord').textContent()).match(/bass (\d+)( \+phaser)?/);
     return m && { n: Number(m[1]), ph: !!m[2] };
   };
   let dense = null;
@@ -402,12 +406,11 @@ test('音程が動かない小節ではベースのフィルタが揺れる', as
   // D-42。ベースはもともとルートを踏み続ける設計なので、たいていの小節が該当する
   await page.locator('.scenebtn').nth(0).click();   // 潜行
   await page.locator('#play').click();
-  await expect(page.locator('#pchord')).toContainText('+ゆらぎ', { timeout: 15000 });
+  await expect(page.locator('#pchord')).toContainText('+wobble', { timeout: 15000 });
 });
 
 test('大きな再生ボタンで鳴りはじめ、鳴っている間は消える', async ({ page }) => {
-  // Issue #1。パッドは pointerdown でポインタを捕まえるので、
-  // 伝播を止めていないと click がパッド側へ吸われてボタンに届かない
+  // Issue #1。スライダーの群より前面にあるので、そのまま押せる
   await expect(page.locator('#bigplay')).toBeVisible();
   await page.locator('#bigplay').click();
 
@@ -417,4 +420,90 @@ test('大きな再生ボタンで鳴りはじめ、鳴っている間は消え�
   // 止めればまた出る
   await page.locator('#pause').click();
   await expect(page.locator('#bigplay')).toBeVisible();
+});
+
+test('ミックスの遷移中にシーンを選んでも進行が止まらない', async ({ page }) => {
+  test.setTimeout(60000);
+  // 遷移を打ち切ったあとも2本目の並びが残り、行き先の無いキットを引いて例外で止まっていた
+  const errors = [];
+  page.on('pageerror', e => errors.push(String(e)));
+  await page.goto('/index.html?transition=mix');
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1500);
+  await page.locator('#next').click();
+  await expect(page.locator('#pphrase')).toContainText('(mix)', { timeout: 8000 });
+  await page.waitForTimeout(2000);                   // 小節の途中で選ぶ
+  await page.locator('.scenebtn').nth(13).click();   // 祝祭 jubilee
+  const at = await sceneBar(page);
+  await expect.poll(() => sceneBar(page), { timeout: 10000 }).toBeGreaterThan(at + 1);
+  expect(errors).toEqual([]);
+});
+
+test('小節ループの間は小節が進まず、解除すると続きから進む', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-56
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await expect.poll(() => sceneBar(page), { timeout: 8000 }).toBeGreaterThan(1);
+
+  await page.locator('#loop').click();
+  await expect(page.locator('#loop')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#loop')).toHaveClass(/blink/);   // 有効な間は点滅する (D-63)
+  await expect(page.locator('#pbarpos')).toContainText('loop');
+  const held = await sceneBar(page);
+  await page.waitForTimeout(5000);                   // 3小節ぶん以上
+  expect(await sceneBar(page)).toBe(held);
+  // ステップの点灯は回り続ける
+  await expect(page.locator('#steps i.now')).toHaveCount(1);
+
+  await page.locator('#loop').click();
+  await expect(page.locator('#loop')).not.toHaveClass(/blink/);
+  await expect.poll(() => sceneBar(page), { timeout: 8000 }).toBeGreaterThan(held);
+});
+
+test('乗り換え前の小節でシーン名が点滅してオカズが入り、next は乗り換わるまで点滅する', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-62。?dub=0 で乗り換え前の小節をオカズに固定する。
+  // 視差効果を減らす設定でも点滅は止めない (D-63)。その設定のまま確かめる
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/index.html?transition=break&dub=0');
+  await page.locator('.scenebtn').nth(12).click();   // 疾走 dash。1小節が短い
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1500);
+  const name = async () => (await page.locator('#scenename').textContent()).replace(' (edit)', '');
+  const before = await name();
+
+  await page.locator('#next').click();
+  await expect(page.locator('#next')).toHaveClass(/blink/);
+  expect(await page.locator('#next').evaluate(el => getComputedStyle(el).animationName)).toBe('blink');
+  await expect(page.locator('#scenename')).not.toHaveClass(/blink/);
+
+  // 乗り換え前の小節
+  await expect(page.locator('#scenename')).toHaveClass(/blink/, { timeout: 15000 });
+  await expect(page.locator('#pbarpos')).toContainText('fill');
+  expect((await page.locator('#pphrase').textContent()).split('→')[0]).toContain('break');
+
+  // 乗り換わったら点滅は止まる
+  await expect.poll(name, { timeout: 15000, intervals: [200] }).not.toBe(before);
+  await expect(page.locator('#scenename')).not.toHaveClass(/blink/);
+  await expect(page.locator('#next')).not.toHaveClass(/blink/);
+});
+
+test('乗り換え前の小節でダブを引いたらブレイクにしない', async ({ page }) => {
+  test.setTimeout(90000);
+  // D-62。?dub で乗り換え前の小節をダブに固定する
+  await page.goto('/index.html?transition=break&dub');
+  await page.locator('.scenebtn').nth(12).click();
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1500);
+
+  await page.locator('#next').click();
+  await expect(page.locator('#scenename')).toHaveClass(/blink/, { timeout: 15000 });
+  await expect(page.locator('#pbarpos')).toContainText('dub');
+  expect((await page.locator('#pphrase').textContent()).split('→')[0]).not.toContain('break');
 });

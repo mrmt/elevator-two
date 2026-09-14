@@ -32,6 +32,57 @@ test('音量を0にすると無音になる', async ({ page }) => {
   expect(peak).toBeLessThan(0.01);
 });
 
+test('キックの音量を0にするとキックが鳴らなくなる', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-54。バスドラムは正弦波の音程を 34〜50Hz へ指数で落とす。
+  // 他の指数ランプは 60 以上 (ベースのフィルタなど) か 1 未満 (音量) なので、この帯域を数えればキックが取れる。
+  // ただしタムも 37Hz 前後まで落ちることがあるので、後半はタムも 0 にしておく
+  await page.addInitScript(() => {
+    window.__kicks = 0;
+    const orig = AudioParam.prototype.exponentialRampToValueAtTime;
+    AudioParam.prototype.exponentialRampToValueAtTime = function (v, t) {
+      if (v >= 30 && v <= 55) window.__kicks++;
+      return orig.call(this, v, t);
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak。4つ打ち
+  await page.locator('#play').click();
+  await page.waitForTimeout(3000);
+  expect(await page.evaluate(() => window.__kicks)).toBeGreaterThan(0);
+
+  await page.locator('#s_mix_kick').fill('0');
+  await page.locator('#s_mix_tom').fill('0');
+  await page.waitForTimeout(500);                    // 先読みで予約済みのぶんを流す
+  await page.evaluate(() => { window.__kicks = 0; });
+  await page.waitForTimeout(3000);
+  expect(await page.evaluate(() => window.__kicks)).toBe(0);
+});
+
+test('スネアを SOLO するとキックが鳴らなくなる', async ({ page }) => {
+  test.setTimeout(60000);
+  // D-59。計測は「キックの音量を0に」と同じ。SOLO はタムも黙らせるので、帯域の重なりは気にしなくてよい
+  await page.addInitScript(() => {
+    window.__kicks = 0;
+    const orig = AudioParam.prototype.exponentialRampToValueAtTime;
+    AudioParam.prototype.exponentialRampToValueAtTime = function (v, t) {
+      if (v >= 30 && v <= 55) window.__kicks++;
+      return orig.call(this, v, t);
+    };
+  });
+  await page.goto('/index.html');
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak。4つ打ち
+  await page.locator('#play').click();
+  await page.waitForTimeout(3000);
+  expect(await page.evaluate(() => window.__kicks)).toBeGreaterThan(0);
+
+  await page.locator('#solo_snare').click();
+  await page.waitForTimeout(500);                    // 先読みで予約済みのぶんを流す
+  await page.evaluate(() => { window.__kicks = 0; });
+  await page.waitForTimeout(3000);
+  expect(await page.evaluate(() => window.__kicks)).toBe(0);
+});
+
 test('音の予約が16分のグリッドに乗る', async ({ page }) => {
   test.setTimeout(60000);
   await installScheduleProbe(page);
@@ -171,7 +222,7 @@ test('ベースが和音のルート音を基本にする', async ({ page }) => 
 });
 
 test('並びが切り替わる前の小節にオカズが入る', async ({ page }) => {
-  test.setTimeout(90000);
+  test.setTimeout(150000);
   // D-20。タムは正弦波のピッチ落ちで作るので、予約された周波数を見れば拾える。
   // バスドラムとスネアも正弦なので、そちらの決まった値は除く
   await page.addInitScript(() => {
@@ -204,10 +255,12 @@ test('並びが切り替わる前の小節にオカズが入る', async ({ page 
     return sine.filter(([v]) => !common.includes(v)).map(([, t]) => t);
   };
 
-  // オカズは8小節に一度。140BPM で 8小節 ≒ 13.7秒なので、20個集まるのは2〜3回ぶん
+  // オカズは8小節に一度。140BPM で 8小節 ≒ 13.7秒なので、20個集まるのは2〜3回ぶん。
+  // 実測では1分でおよそ18〜23個しか出ず、60秒で打ち切ると変更の有無によらず落ちうる。
+  // 集まった時点で抜けるので、上限を延ばしても普段の実行時間は変わらない
   await page.evaluate(() => { window.__sine.length = 0; });
   let sine = [];
-  for (let waited = 0; waited < 60000; waited += 5000) {
+  for (let waited = 0; waited < 100000; waited += 5000) {
     await page.waitForTimeout(5000);
     sine = await page.evaluate(() => window.__sine);
     if (pickToms(sine).length >= 20) break;
@@ -292,7 +345,7 @@ test('コード弾きに連打のバリエーションがある', async ({ page 
   });
   await page.goto('/index.html');
   await page.locator('.scenebtn').nth(10).click();   // 火花 spark
-  await expect(page.locator('#pchord')).toContainText('連打');
+  await expect(page.locator('#pchord')).toContainText(' chop');
 
   await page.locator('#s_bpm').fill('140');
   await page.locator('#play').click();
@@ -318,11 +371,11 @@ test('持続のシーンでは連打にならない', async ({ page }) => {
   // 祝祭 (jubilee) は chop を持たないので、必ず持続音になる (D-34)
   await page.goto('/index.html');
   await page.locator('.scenebtn').nth(13).click();
-  await expect(page.locator('#pchord')).toContainText('持続');
-  await expect(page.locator('#pchord')).not.toContainText('連打');
+  await expect(page.locator('#pchord')).toContainText('[sustain');
+  await expect(page.locator('#pchord')).not.toContainText(' chop');
 });
 
-test('XYパッドの背景に波形が出る', async ({ page }) => {
+test('monitor に波形が出る', async ({ page }) => {
   // D-36。出力から分岐した AnalyserNode を作り、その波形を canvas に描く
   await page.addInitScript(() => {
     window.__analysers = 0;
