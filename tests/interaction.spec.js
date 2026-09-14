@@ -45,7 +45,18 @@ test('広い画面では2セクションが同時に見える', async ({ page, i
   await expect(page.locator('#tab-sound')).toHaveCount(0);
 });
 
-test('ヘッダーが折り返さない', async ({ page }) => {
+test('ヘッダーが折り返さない', async ({ page, isMobile }) => {
+  /* 起動時のシーンはランダムなので、一番長い名前 (submerge) を選び、スライダーを触って (edit) まで付けた
+     最悪の状態で見る。短い名前のときだけ1行に収まる、という崩れを CI で踏んだ (D-69) */
+  if (isMobile) await page.locator('.tab[data-tab="scene"]').click();
+  await page.locator('.scenebtn').nth(0).click();   // 潜行 submerge
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  await page.locator('#s_drive').fill('0.9');
+  await expect(page.locator('#scenename')).toContainText('(edit)');
+  // シーン名は、はみ出すぶんを省略しても再生ボタンに食い込まない
+  const scene = await page.locator('#scenename').boundingBox();
+  const playBox = await page.locator('#play').boundingBox();
+  expect(scene.x + scene.width).toBeLessThanOrEqual(playBox.x);
   const h = await page.locator('header').evaluate(el => el.getBoundingClientRect().height);
   expect(h).toBeLessThan(90);
   // 高さだけでは2行に落ちても通ってしまう (D-69 でアイコンを足したとき、狭い画面で再生ボタンが2行目に落ちた)。
