@@ -2068,14 +2068,25 @@ const waveYY = pos => .5 - .5*Math.cos(pos*Math.PI*2);
 
 function newWavePeriod(){ wavePeriod=rand(1200,2400); }
 
-// 波の位置から次のシーンを選ぶ。直近に出たものは避ける
+const CROSS_GROUP=.8;   // 別の群へ渡る割合 (D-53)
+
+/* 波の位置から次のシーンを選ぶ。直近に出たものは避け、群をまたぐ相手を優先する (D-53)。
+   回路もキットも入れ替わるので、変化がいちばん鮮やかに出る */
 function chooseScene(){
   const yy=waveYY(wavePos);
   const cand=SCENES.map((s,i)=>({i,d:Math.abs(s.yy-yy)}))
     .filter(c=>!recent.includes(c.i))
     .sort((a,b)=>a.d-b.d);
-  const pool=cand.slice(0,3);   // 最も近い3つから引き、同じ道を辿らせない
-  return pool.length ? pick(pool).i : Math.floor(Math.random()*SCENES.length);
+  if(!cand.length) return Math.floor(Math.random()*SCENES.length);
+  const near=cand.slice(0,5);   // 波から離れすぎない範囲。この中で相手を選ぶ
+  const sc=SCENES[sceneIdx];
+  const other=near.filter(c=>SCENES[c.i].group!==sc.group);
+  if(other.length && Math.random()<CROSS_GROUP) return pick(other).i;
+  /* 残りは同じ群へ。ここは連続変形 (D-5 方式2) の出番なので、
+     その成立条件であるキットまで同じ相手を先に採る */
+  const same=near.filter(c=>SCENES[c.i].group===sc.group);
+  const twin=same.filter(c=>SCENES[c.i].kit===sc.kit);
+  return (twin.length ? pick(twin) : same.length ? pick(same) : pick(cand.slice(0,3))).i;
 }
 
 // evolution が高いほどシーンは短い。2〜5分 (D-12) を小節数に直す
