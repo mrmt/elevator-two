@@ -57,6 +57,8 @@ test('ヘッダーが折り返さない', async ({ page, isMobile }) => {
   const scene = await page.locator('#scenename').boundingBox();
   const playBox = await page.locator('#play').boundingBox();
   expect(scene.x + scene.width).toBeLessThanOrEqual(playBox.x);
+  // シーン名が読める幅を残す。about を足したとき、狭い画面で 7px (1文字も読めない) まで削られた (D-71)
+  expect(scene.width).toBeGreaterThanOrEqual(80);
   const h = await page.locator('header').evaluate(el => el.getBoundingClientRect().height);
   expect(h).toBeLessThan(90);
   // 高さだけでは2行に落ちても通ってしまう (D-69 でアイコンを足したとき、狭い画面で再生ボタンが2行目に落ちた)。
@@ -108,17 +110,25 @@ test('個別の音量はリロードしても保たれる', async ({ page, isMob
   await expect(page.locator('#v_mix_bellRatio')).toHaveText('×1.50');
 });
 
-test('大きな再生ボタンが卓の中央に出る', async ({ page, isMobile }) => {
-  // Issue #1。右上の小さなボタンだけでは、まず押さないと鳴らないことに気づけない
-  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
-  await expect(page.locator('#bigplay')).toBeVisible();
+test('大きな再生ボタンと READ ME FIRST が画面の中央に出る', async ({ page }) => {
+  // Issue #1 / D-72。右上の小さなボタンだけでは、まず押さないと鳴らないことに気づけない。
+  // 卓の中ではなく画面全体の左右中央に、大きく出す。その下に about ページへの案内
+  const btn = page.locator('#bigplay');
+  const readme = page.locator('#readme');
+  await expect(btn).toBeVisible();
+  await expect(readme).toBeVisible();
+  await expect(readme).toHaveText('READ ME FIRST');
+  await expect(readme).toHaveAttribute('href', 'about.html');
 
-  const pad = await page.locator('#console').boundingBox();
-  const btn = await page.locator('#bigplay').boundingBox();
-  expect(Math.abs((btn.x + btn.width / 2) - (pad.x + pad.width / 2))).toBeLessThan(2);
-  expect(Math.abs((btn.y + btn.height / 2) - (pad.y + pad.height / 2))).toBeLessThan(2);
-  // 指でも押せる大きさ
-  expect(btn.width).toBeGreaterThan(56);
+  const vw = await page.evaluate(() => document.documentElement.clientWidth);
+  const b = await btn.boundingBox();
+  const r = await readme.boundingBox();
+  expect(Math.abs((b.x + b.width / 2) - vw / 2)).toBeLessThan(2);
+  expect(Math.abs((r.x + r.width / 2) - vw / 2)).toBeLessThan(2);
+  // ボタンの下にある
+  expect(r.y).toBeGreaterThan(b.y + b.height);
+  // 以前 (最大 104px) より大きい。指でも押せる
+  expect(b.width).toBeGreaterThan(90);
 });
 
 test('卓は control / monitor / mixer の3群', async ({ page, isMobile }) => {
@@ -210,4 +220,13 @@ test('タイトルの左に、上の階層へのアイコンのリンクがあ�
   const icon = await link.boundingBox();
   const title = await page.locator('header .mark').boundingBox();
   expect(icon.x + icon.width).toBeLessThanOrEqual(title.x);
+});
+
+test('about ページへのリンクがある', async ({ page, isMobile }) => {
+  // D-71。広い画面ではヘッダーに、狭い画面ではタブの並びの右端にある
+  const link = page.locator(isMobile ? '#tabs a.tababout' : 'header a.about');
+  await expect(link).toHaveAttribute('href', 'about.html');
+  await expect(link).toBeVisible();
+  // 切り替えのタブには数えない
+  if (isMobile) await expect(page.locator('#tabs .tab')).toHaveCount(2);
 });

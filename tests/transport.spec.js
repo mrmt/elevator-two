@@ -420,10 +420,12 @@ test('大きな再生ボタンで鳴りはじめ、鳴っている間は消え�
 
   await expect(page.locator('#play')).toHaveAttribute('data-on', '1');
   await expect(page.locator('#bigplay')).toBeHidden();
+  await expect(page.locator('#readme')).toBeHidden();   // 案内も一緒に消える (D-72)
 
   // 止めればまた出る
   await page.locator('#pause').click();
   await expect(page.locator('#bigplay')).toBeVisible();
+  await expect(page.locator('#readme')).toBeVisible();
 });
 
 test('ミックスの遷移中にシーンを選んでも進行が止まらない', async ({ page }) => {
