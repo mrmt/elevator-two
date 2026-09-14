@@ -23,8 +23,6 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'on-first-retry',
-    // 表示言語はブラウザ言語で決まるので、既定を固定しないとCI環境依存になる
-    locale: 'ja-JP',
   },
 
   // 静的HTML1枚なので配信はpython3で足りる
@@ -55,32 +53,17 @@ export default defineConfig({
         launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] },
       },
     },
-    // macOS相当。3カラムのデスクトップレイアウト
+    // macOS相当。2カラムのデスクトップレイアウト
     {
       name: 'desktop-chromium',
       testMatch: /interaction\.spec\.js/,
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
-    // iOS相当。英語は日本語より文字列が長く、ヘッダーが折り返す危険が一番高い幅なので
-    // 狭幅の検証は英語で走らせる
+    // iOS相当。ヘッダーが折り返す危険が一番高い幅
     {
       name: 'mobile-webkit',
       testMatch: /interaction\.spec\.js/,
-      use: { ...devices['iPhone 14'], locale: 'en-US' },
-    },
-    // 背景の動画。YouTube へは繋がず、IFrame API と検索を差し替えて見る
-    {
-      name: 'video-chromium',
-      testMatch: /video\.spec\.js/,
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] },
-      },
-    },
-    {
-      name: 'i18n-chromium',
-      testMatch: /i18n\.spec\.js/,
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['iPhone 14'] },
     },
   ],
 });

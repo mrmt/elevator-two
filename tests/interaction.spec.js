@@ -1,4 +1,4 @@
-// レイアウトと操作。広い画面では3カラム、狭い画面ではタブで1セクションずつ。
+// レイアウトと操作。広い画面では2カラム、狭い画面ではタブで1セクションずつ。
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
@@ -14,37 +14,35 @@ test('ページ自体は横にも縦にもスクロールしない', async ({ pa
   expect(over.y).toBeLessThanOrEqual(1);
 });
 
-test('XYパッドをドラッグすると陰陽と密度が変わる', async ({ page, isMobile }) => {
-  if (isMobile) await page.locator('.tab[data-tab="pad"]').click();
-  const before = await page.locator('#ryy').textContent();
-
-  const box = await page.locator('#plane').boundingBox();
-  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.8);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height * 0.2, { steps: 8 });
-  await page.mouse.up();
-
-  // 目標に追いつくまで時間がかかるので、値が動き出したことだけ見る
-  await expect.poll(() => page.locator('#ryy').textContent(), { timeout: 8000 })
-    .not.toBe(before);
+test('陰陽のスライダーは手で動かすと波に戻されない', async ({ page, isMobile }) => {
+  // D-54 / D-13。触ったら (edit) が付き、目標は手で置いた値のまま保たれる
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  const before = parseFloat(await page.locator('#s_yy').inputValue());
+  const v = before < 0.5 ? '0.9' : '0.1';
+  await page.locator('#s_yy').fill(v);
+  await expect(page.locator('#scenename')).toContainText('(edit)');
+  await page.waitForTimeout(1500);
+  await expect(page.locator('#s_yy')).toHaveValue(v);
 });
 
 test('狭い画面ではタブで切り替わる', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'デスクトップ幅ではタブを出さない');
   await expect(page.locator('#tabs')).toBeVisible();
+  await expect(page.locator('.tab')).toHaveCount(2);
   await page.locator('.tab[data-tab="scene"]').click();
   await expect(page.locator('#tab-scene')).toBeVisible();
-  await expect(page.locator('#tab-pad')).toBeHidden();
-  await page.locator('.tab[data-tab="sound"]').click();
-  await expect(page.locator('#tab-sound')).toBeVisible();
+  await expect(page.locator('#tab-mix')).toBeHidden();
+  await page.locator('.tab[data-tab="param"]').click();
+  await expect(page.locator('#tab-mix')).toBeVisible();
 });
 
-test('広い画面では3セクションが同時に見える', async ({ page, isMobile }) => {
+test('広い画面では2セクションが同時に見える', async ({ page, isMobile }) => {
   test.skip(isMobile, '狭幅ではタブ表示になる');
   await expect(page.locator('#tabs')).toBeHidden();
   await expect(page.locator('#tab-scene')).toBeVisible();
-  await expect(page.locator('#tab-pad')).toBeVisible();
-  await expect(page.locator('#tab-sound')).toBeVisible();
+  await expect(page.locator('#tab-mix')).toBeVisible();
+  // 右カラム (音作り) は廃止した (D-54)
+  await expect(page.locator('#tab-sound')).toHaveCount(0);
 });
 
 test('ヘッダーが折り返さない', async ({ page }) => {
@@ -67,15 +65,120 @@ test('見た目は EK 固定で、切り替えは無い', async ({ page }) => {
   expect(bg).toBe('rgb(8, 8, 10)');
 });
 
-test('大きな再生ボタンがXYパッドの中央に出る', async ({ page, isMobile }) => {
+test('UI は英語だけで、言語の切り替えは無い', async ({ page }) => {
+  // D-55。表示もツールチップも英語に統一し、i18n の仕組みは廃止した
+  await expect(page.locator('#lang')).toHaveCount(0);
+  expect(await page.getAttribute('html', 'lang')).toBe('en');
+  const text = await page.evaluate(() => [
+    document.title,
+    document.body.innerText,
+    ...[...document.querySelectorAll('[data-tip]')].map(el => el.dataset.tip),
+    ...[...document.querySelectorAll('[aria-label]')].map(el => el.getAttribute('aria-label')),
+  ].join('\n'));
+  expect(text).not.toMatch(/[\u3040-\u30ff\u3400-\u9fff]/);
+});
+
+test('個別の音量はリロードしても保たれる', async ({ page, isMobile }) => {
+  // D-54。値はこのブラウザに保存する
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  await expect(page.locator('#s_mix_kick')).toHaveValue('1');
+  await page.locator('#s_mix_kick').fill('0.4');
+  await page.locator('#s_mix_bellRatio').fill('1.5');
+  await expect(page.locator('#v_mix_kick')).toHaveText('40%');
+
+  await page.reload();
+  await expect(page.locator('#s_mix_kick')).toHaveValue('0.4');
+  await expect(page.locator('#s_mix_bellRatio')).toHaveValue('1.5');
+  await expect(page.locator('#v_mix_bellRatio')).toHaveText('×1.50');
+});
+
+test('大きな再生ボタンが卓の中央に出る', async ({ page, isMobile }) => {
   // Issue #1。右上の小さなボタンだけでは、まず押さないと鳴らないことに気づけない
-  if (isMobile) await page.locator('.tab[data-tab="pad"]').click();
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
   await expect(page.locator('#bigplay')).toBeVisible();
 
-  const pad = await page.locator('#plane').boundingBox();
+  const pad = await page.locator('#console').boundingBox();
   const btn = await page.locator('#bigplay').boundingBox();
   expect(Math.abs((btn.x + btn.width / 2) - (pad.x + pad.width / 2))).toBeLessThan(2);
   expect(Math.abs((btn.y + btn.height / 2) - (pad.y + pad.height / 2))).toBeLessThan(2);
   // 指でも押せる大きさ
   expect(btn.width).toBeGreaterThan(56);
+});
+
+test('卓は control / monitor / mixer の3群', async ({ page, isMobile }) => {
+  // D-57 / D-61
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  await expect(page.locator('#mixer .mixgrp > .mixhead > span:first-child'))
+    .toHaveText(['control', 'monitor', 'mixer']);
+  await expect(page.locator('#s_mix_strings')).toHaveCount(1);
+  await expect(page.locator('#s_mix_sustain')).toHaveCount(0);
+});
+
+test('reset all で既定値に戻り、保存も消える', async ({ page, isMobile }) => {
+  // D-57
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  await page.locator('#s_mix_kick').fill('0.3');
+  await page.locator('#s_weight').fill('0.9');
+  await page.locator('#s_volume').fill('20');
+  await expect(page.locator('#scenename')).toContainText('(edit)');
+
+  await page.locator('#reset').click();
+  await expect(page.locator('#s_mix_kick')).toHaveValue('1');
+  await expect(page.locator('#s_weight')).toHaveValue('0.1');
+  await expect(page.locator('#s_volume')).toHaveValue('80');
+  await expect(page.locator('#scenename')).not.toContainText('(edit)');
+
+  await page.reload();
+  await expect(page.locator('#s_mix_kick')).toHaveValue('1');
+});
+
+test('mixer の音量には SOLO と MUTE がある', async ({ page, isMobile }) => {
+  // D-59。倍率の bell FM ratio には付けない
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  await expect(page.locator('#mixer .smbtn.solo')).toHaveCount(20);
+  await expect(page.locator('#mixer .smbtn.mute')).toHaveCount(20);
+  await expect(page.locator('#solo_bellRatio')).toHaveCount(0);
+
+  const row = key => page.locator('.param', { has: page.locator(`#s_mix_${key}`) });
+  await page.locator('#solo_kick').click();
+  await expect(page.locator('#solo_kick')).toHaveAttribute('aria-pressed', 'true');
+  await expect(row('kick')).not.toHaveClass(/silenced/);
+  await expect(row('snare')).toHaveClass(/silenced/);
+
+  // MUTE は SOLO より強い
+  await page.locator('#mute_kick').click();
+  await expect(row('kick')).toHaveClass(/silenced/);
+
+  // reset all で解除される
+  await page.locator('#reset').click();
+  await expect(page.locator('#solo_kick')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#mute_kick')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#mixer .param.silenced')).toHaveCount(0);
+});
+
+test('YouTube と大きな読み出しは無く、進行の表示は monitor にある', async ({ page, isMobile }) => {
+  // D-60 / D-61
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  for (const id of ['bg', 'bgvideo', 'ytkey', 'vcap', 'ryy', 'rd']) {
+    await expect(page.locator('#' + id)).toHaveCount(0);
+  }
+  for (const id of ['rbpm', 'rbar', 'cv', 'steps', 'pphrase', 'pevent', 'pwave', 'pchord']) {
+    await expect(page.locator(`#monitor #${id}`)).toHaveCount(1);
+  }
+  // 広い画面では control の右に並ぶ
+  if (!isMobile) {
+    const c = await page.locator('#grp-control').boundingBox();
+    const m = await page.locator('#monitor').boundingBox();
+    expect(m.x).toBeGreaterThan(c.x + c.width - 1);
+    expect(Math.abs(m.y - c.y)).toBeLessThan(2);
+  }
+});
+
+test('next と loop bar は control にあり、PARAM の見出しは出さない', async ({ page, isMobile }) => {
+  // D-62
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  await expect(page.locator('#grp-control #next')).toHaveCount(1);
+  await expect(page.locator('#grp-control #loop')).toHaveCount(1);
+  await expect(page.locator('#tab-scene #next')).toHaveCount(0);
+  await expect(page.locator('#tab-mix > .eyebrow')).toBeHidden();
 });
