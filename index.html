@@ -401,7 +401,7 @@
   <div class="mark">Elevator Two</div>
   <div class="sub tagline">generative electro</div>
   <div class="sub ver" id="ver"></div>
-  <a class="sub about" href="about.html" data-tip="How it works and how to play it">about</a>
+  <a class="sub about" href="about.html" target="_blank" rel="noopener" data-tip="How it works and how to play it">about</a>
   <!-- 現在のシーン名。中身は updateScene() が入れる -->
   <div class="sub scene" id="scenename"></div>
   <div class="transport">
@@ -414,7 +414,7 @@
   <button class="tab" data-tab="scene" aria-selected="false">scene</button>
   <button class="tab" data-tab="param" aria-selected="true">param</button>
   <!-- 狭い画面では about のリンクをヘッダーからここへ移す (D-71)。切り替えのタブではないので .tab にはしない -->
-  <a class="tababout" href="about.html">about</a>
+  <a class="tababout" href="about.html" target="_blank" rel="noopener">about</a>
 </nav>
 
 <main id="main" data-tab="param">
@@ -468,7 +468,7 @@
   <button id="bigplay" aria-label="play" data-tip="Start the transport. Browsers block audio until you interact, so press here first. Space also toggles.">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5 19.5 12 7 19.5z"/></svg>
   </button>
-  <a id="readme" href="about.html">READ ME FIRST</a>
+  <a id="readme" href="about.html" target="_blank" rel="noopener">READ ME FIRST</a>
 </div>
 
 <div id="tip" role="tooltip"></div>
