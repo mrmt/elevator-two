@@ -119,6 +119,8 @@ test('大きな再生ボタンと READ ME FIRST が画面の中央に出る', as
   await expect(readme).toBeVisible();
   await expect(readme).toHaveText('READ ME FIRST');
   await expect(readme).toHaveAttribute('href', 'about.html');
+  // 遷移すると演奏が止まるので、別のタブで開く
+  await expect(readme).toHaveAttribute('target', '_blank');
 
   const vw = await page.evaluate(() => document.documentElement.clientWidth);
   const b = await btn.boundingBox();
@@ -226,6 +228,7 @@ test('about ページへのリンクがある', async ({ page, isMobile }) => {
   // D-71。広い画面ではヘッダーに、狭い画面ではタブの並びの右端にある
   const link = page.locator(isMobile ? '#tabs a.tababout' : 'header a.about');
   await expect(link).toHaveAttribute('href', 'about.html');
+  await expect(link).toHaveAttribute('target', '_blank');
   await expect(link).toBeVisible();
   // 切り替えのタブには数えない
   if (isMobile) await expect(page.locator('#tabs .tab')).toHaveCount(2);
