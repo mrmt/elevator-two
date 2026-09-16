@@ -1860,7 +1860,7 @@ function decayTo(gain,t,peak,dec,atk){
 
 // バスドラム: 正弦波のピッチ落ち + 冒頭の短いクリック
 function bd(t,v){
-  v*=lv('kick'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
+  v*=lv('kick')*.7; if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)。量は7割 (D-73)
   const k=kit().bd, w=current.weight;
   const o=ctx.createOscillator(), g=ctx.createGain(), p=drumOut(0);
   o.type='sine';
