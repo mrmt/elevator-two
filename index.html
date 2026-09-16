@@ -2191,6 +2191,13 @@ const forcedSparkRhythm=(()=>{
   const v=QS.get('sparkrhythm');
   return ['quarter','push','eighth','three','laid','syncope'].includes(v) ? v : null;
 })();
+/* 開発用。?sparkmotif で覚えた形を必ず使い直し、引退もさせない (D-75)。
+   ?sparkmotif=0 なら必ず新しく引く。素のままだと再利用は5割なので、
+   反復が狙いに聞こえるかループに落ちるかを聴き比べるのに待ちが入る */
+const forcedSparkMotif=(()=>{
+  const v=QS.get('sparkmotif');
+  return v===null ? null : !(v==='0' || v==='false');
+})();
 let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
@@ -2250,6 +2257,8 @@ function enterScene(idx,{manual=false,keepKey=false}={}){
   rollNoise(SCENES[idx].group);     // インダストリアル・ノイズを出すかどうか (D-38)
   // コード弾きを持続音にするか連打にするか (D-34)。出やすさはシーンごとに持つ
   padChop = Math.random() < (SCENES[idx].chop||0);
+  // リフのモチーフはシーンごとに引き直す (D-75)。跨いで残すと合図の役が薄れる
+  sparkMotif=null; sparkAnswerAt=-1;
   chordAt=-999;       // 次の小節で必ず和音を組み直す
   sceneStartBar=barCount;
   sceneBars=sceneLengthBars();
@@ -2767,6 +2776,18 @@ let sparkAt=-1, sparkNotes=null, sparkSpill=null, sparkLastTime=-999;
 let sparkOff=null, sparkRhythm=null;    // その回の置き場所の型と、その名前 (D-74)
 let sparkLabel='', sparkLabelBar=-1;    // どの型で出たかを monitor に出す (D-74)
 
+/* ---- リフのモチーフ (D-75) ----
+   覚えるのは半音ではなく tones の添字の差分。tones はそのときの和音を音域へ
+   畳んだ集合なので、差分だけ持って開始位置を引き直せば、同じ形がそのときの
+   和音の上で鳴る。移調と再和声化が別処理なしで付いてくる。
+   毎回独立に引いていると変奏する相手がいないので、マンネリの逆 (覚えのある形が
+   姿を変えて戻る) が成り立たない */
+let sparkMotif=null;        // {steps, rhythm, uses, life}
+let sparkMotifUse=0;        // その回が何回目の使い回しか。monitor に出す
+let sparkAnswerAt=-1;       // 呼びかけに応答を返す小節 (D-75)
+const SPARK_REUSE=.5;       // 覚えた形を使い直す確率
+const SPARK_ANSWER=.35;     // 呼びかけに応答を返す確率
+
 const SPARK_GAP=22;   // 秒。これより短い間隔では続けて出さない
 
 /* ---- リフのリズムの型 (D-74) ----
@@ -2792,37 +2813,19 @@ function drawSparkRhythm(bar){
   return pick(names);
 }
 
-function planSpark(bar){
-  if(bar%4!==0 || phrase==='break') return;
-  const gap = forcedSpark===null ? SPARK_GAP : 0;
-  if(ctx.currentTime-sparkLastTime<gap) return;   // 固まって出るのを防ぐ
-  let p=forcedSpark;
-  if(p===null){
-    /* 毎分1.5回になる確率を BPM から逆算する。4小節区間は 960/bpm 秒。
-       間隔の下限が直後の何区間かを塞ぐので、そのぶんを込みで上げておかないと
-       実際の回数が目標を割る */
-    const per=960/bpmNow();              // 1区間の秒数
-    const r=1.5*per/60;                  // 間隔の下限が無ければこの確率でよい
-    const g=Math.floor(SPARK_GAP/per);   // 発火のあと塞がれる区間の数
-    p=clamp(r/Math.max(1-r*g,.25),.08,.5);
-  }
-  if(Math.random()>=p) return;
-  /* 食いを固定したときは、食いを置く小節 (sparkAt-1) が残る枝に寄せる。
-     sparkAt=bar+1 だとその小節はもう過ぎていて、食いが出ないため (D-74) */
-  const laterOnly = forcedSparkRhythm==='push';
-  sparkAt = bar + ((laterOnly || Math.random()<.62) ? 3 : 1);   // 4小節め寄り、たまに2小節め
-  sparkRhythm = drawSparkRhythm(bar);              // 置き場所の型 (D-74)
-  sparkOff = SPARK_RHYTHMS[sparkRhythm];
-  // 旋律は和音の構成音だけで作る。順次進行を主に、2割ほど跳ぶ。
-  // 調と度数で和音の位置が動くので、4フィートの音域へ畳んでから使う
-  const tones=[...new Set(coreNotes(72).map(n=>{
+// 和音を4フィートの音域へ畳んだ音の集合。リフはこの中だけを歩く
+function sparkTones(){
+  return [...new Set(coreNotes(72).map(n=>{
     while(n<70) n+=12;
     while(n>89) n-=12;
     return n;
   }))].sort((a,b)=>a-b);
-  const n=3+Math.floor(Math.random()*3);           // 4分音符3〜5個
+}
+
+/* 旋律の並びを引く (D-48)。順次進行を主に、2割ほど跳ぶ。
+   leap[i] は i 番めから次の音への動きが跳躍かどうか */
+function drawSparkLine(tones,n){
   let idx=Math.floor(Math.random()*tones.length);
-  // 音の並びを先に引く。leap[i] は i 番めから次の音への動きが跳躍かどうか
   const line=[], leap=[];
   for(let i=0;i<n;i++){
     line.push(idx);
@@ -2832,15 +2835,115 @@ function planSpark(bar){
     idx=clamp(next,0,tones.length-1);
     leap.push(dist>=2);
   }
-  /* アクセントに1オクターブ下を使う (D-52)。頭と、跳んで着いた音だけ。
-     続けては落とさない。旋律ごと下がって、ただの移調に化けるため */
-  sparkNotes=[]; let low=false;
-  for(let i=0;i<n;i++){
+  return {line,leap};
+}
+
+/* 覚えた差分から並びを組む (D-75)。開始位置は引き直すので、
+   同じ形がそのときの和音の別の高さで鳴る */
+function motifLine(tones,steps){
+  let idx=Math.floor(Math.random()*tones.length);
+  const line=[idx], leap=[];
+  for(const d of steps){
+    let next=idx+d;
+    if(next<0 || next>tones.length-1) next=idx-d;   // 端で折り返す
+    idx=clamp(next,0,tones.length-1);
+    line.push(idx);
+    leap.push(Math.abs(d)>=2);
+  }
+  return {line,leap};
+}
+
+/* アクセントに1オクターブ下を使う (D-52)。頭と、跳んで着いた音だけ。
+   続けては落とさない。旋律ごと下がって、ただの移調に化けるため */
+function sparkVoice(tones,line,leap){
+  const out=[]; let low=false;
+  for(let i=0;i<line.length;i++){
     low = !low && (i===0 ? Math.random()<.5 : leap[i-1] && Math.random()<.4);
     const vel=(i===0?.95:.72+Math.random()*.16);
     // 下げるとフィルタが低い側で開くぶん暗くなるので、少しだけ強く弾く
-    sparkNotes.push({midi:tones[line[i]]-(low?12:0), vel:low?Math.min(vel*1.15,1):vel});
+    out.push({midi:tones[line[i]]-(low?12:0), vel:low?Math.min(vel*1.15,1):vel});
   }
+  return out;
+}
+
+/* 変奏 (D-75)。steps か rhythm の片方だけを触る。
+   両方替えると元の形との繋がりが切れて、変奏に聞こえない。
+   音の数は3〜5に保つので、伸ばす・削るは端で打ち止めにする */
+function varyMotif(m,bar){
+  const len=m.steps.length;
+  const kinds=['repeat','invert','rerhythm'];
+  if(len<4) kinds.push('grow');
+  if(len>2) kinds.push('shrink');
+  switch(pick(kinds)){
+    case 'invert':   return {steps:m.steps.map(d=>-d),               rhythm:m.rhythm};
+    case 'grow':     return {steps:m.steps.concat(pick([-2,-1,1,2])),rhythm:m.rhythm};
+    case 'shrink':   return {steps:m.steps.slice(0,len-1),           rhythm:m.rhythm};
+    case 'rerhythm': return {steps:m.steps,                          rhythm:drawSparkRhythm(bar)};
+    default:         return {steps:m.steps,                          rhythm:m.rhythm};   // 移調反復
+  }
+}
+
+function planSpark(bar){
+  if(bar%4!==0) return;
+  /* 呼びかけと応答 (D-75)。呼びかけの次の区間の2小節めに、変奏で返す。
+     同じ身振りの一部なので、確率と間隔の下限 (SPARK_GAP) は通さない */
+  const answerNow = sparkAnswerAt===bar+1 && !!sparkMotif && phrase!=='break';
+  if(sparkAnswerAt>=0 && sparkAnswerAt<=bar+1) sparkAnswerAt=-1;   // 返したか、取りこぼした
+  if(phrase==='break') return;
+  if(!answerNow){
+    const gap = forcedSpark===null ? SPARK_GAP : 0;
+    if(ctx.currentTime-sparkLastTime<gap) return;   // 固まって出るのを防ぐ
+    let p=forcedSpark;
+    if(p===null){
+      /* 毎分1.5回になる確率を BPM から逆算する。4小節区間は 960/bpm 秒。
+         間隔の下限が直後の何区間かを塞ぐので、そのぶんを込みで上げておかないと
+         実際の回数が目標を割る。応答のぶんだけ回数が増えるので、
+         素の側をそのぶん下げて合図の数を据え置く (D-75) */
+      const per=960/bpmNow();              // 1区間の秒数
+      const r=(1.5/(1+SPARK_ANSWER))*per/60;
+      const g=Math.floor(SPARK_GAP/per);   // 発火のあと塞がれる区間の数
+      p=clamp(r/Math.max(1-r*g,.25),.08,.5);
+    }
+    if(Math.random()>=p) return;
+  }
+  /* 食いを固定したときは、食いを置く小節 (sparkAt-1) が残る枝に寄せる。
+     sparkAt=bar+1 だとその小節はもう過ぎていて、食いが出ないため (D-74) */
+  const laterOnly = forcedSparkRhythm==='push';
+  sparkAt = answerNow ? bar+1 : bar + ((laterOnly || Math.random()<.62) ? 3 : 1);
+  const tones=sparkTones();
+
+  /* 覚えた形を使い回すか、新しく引くか (D-75)。
+     応答は必ず変奏なので、覚えた形の側に入る */
+  const alive = sparkMotif && (forcedSparkMotif===true || sparkMotif.uses<sparkMotif.life);
+  const reuse = answerNow ||
+    (alive && (forcedSparkMotif===true ||
+               (forcedSparkMotif!==false && Math.random()<SPARK_REUSE)));
+  if(reuse){
+    const v = answerNow ? varyMotif(sparkMotif,bar)
+                        : {steps:sparkMotif.steps, rhythm:sparkMotif.rhythm};
+    sparkRhythm = v.rhythm;
+    sparkMotif = {...sparkMotif, steps:v.steps, rhythm:v.rhythm, uses:sparkMotif.uses+1};
+    const {line,leap}=motifLine(tones,v.steps);
+    sparkNotes=sparkVoice(tones,line,leap);
+  }else{
+    // リズムだけ前の形から引き継ぐことがある。旋律を替えても身振りは残る
+    sparkRhythm = (sparkMotif && Math.random()<.3) ? sparkMotif.rhythm : drawSparkRhythm(bar);
+    const n=3+Math.floor(Math.random()*3);           // 音は3〜5個
+    const {line,leap}=drawSparkLine(tones,n);
+    sparkNotes=sparkVoice(tones,line,leap);
+    const steps=[];
+    for(let i=1;i<line.length;i++) steps.push(line[i]-line[i-1]);
+    sparkMotif={steps, rhythm:sparkRhythm, uses:1, life:2+Math.floor(Math.random()*3)};
+  }
+  if(forcedSparkRhythm) sparkRhythm=forcedSparkRhythm;
+  // 応答は sparkAt=bar+1 なので、食いを置く小節がもう過ぎている (D-74)
+  if(answerNow && sparkRhythm==='push') sparkRhythm='quarter';
+  sparkOff = SPARK_RHYTHMS[sparkRhythm];
+  sparkMotifUse = sparkMotif.uses;
+  /* 呼びかけには応答を仕込む。応答からは繋げない (際限なく続くため) */
+  const canAnswer = !answerNow &&
+    (forcedSparkMotif===true || Math.random()<SPARK_ANSWER);
+  sparkAnswerAt = canAnswer ? bar+5 : -1;
 }
 
 /* ---- ベースの性格を測る ----
@@ -2895,7 +2998,8 @@ function placeSpark(bar){
     });
     sparkSpill = spill.length ? spill : null;
     sparkLastTime=ctx.currentTime;
-    sparkLabel=sparkRhythm; sparkLabelBar=bar;       // monitor 用 (D-74)
+    // monitor 用 (D-74 / D-75)。m2 以降は覚えた形の使い回し
+    sparkLabel=sparkRhythm+(sparkMotifUse>1?'·m'+sparkMotifUse:''); sparkLabelBar=bar;
   }
   if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; sparkOff=null; }   // 取りこぼしたら捨てる
   planSpark(bar);                                    // 次を仕込む
@@ -3857,6 +3961,7 @@ function stopAudio(){
   setPowerUI(false);
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
   pendingScene=-1; transitionEndBar=-1; seqB=null; pendingSpill=null; sparkSpill=null;
+  sparkMotif=null; sparkAnswerAt=-1;   // リフのモチーフと応答も持ち越さない (D-75)
   evLeadUntil=0; nextPending=false;
   if(phaserWet){ phaserWet.gain.cancelScheduledValues(ctx.currentTime); phaserWet.gain.setValueAtTime(0,ctx.currentTime); }
   if(drumMixB) endMixFades(ctx.currentTime);
