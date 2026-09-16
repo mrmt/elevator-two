@@ -2184,6 +2184,13 @@ const forcedFill=(()=>{
   const v=QS.get('fill');
   return ['tom','snare'].includes(v) ? v : null;
 })();
+/* 開発用。?sparkrhythm=push でリフの置き場所の型を固定する (D-74)。
+   引くところを固定するだけで、置く規則は素のまま。?spark と併用する前提。
+   名前は SPARK_RHYTHMS と揃える (ここは定義より前なので直に参照できない) */
+const forcedSparkRhythm=(()=>{
+  const v=QS.get('sparkrhythm');
+  return ['quarter','push','eighth','three','laid','syncope'].includes(v) ? v : null;
+})();
 let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
@@ -2757,8 +2764,33 @@ function fireDub(time){
    4小節区間の頭で、その区間に出すかどうかと、出す小節を決める。
    常時鳴らさないことが肝なので、確率と間隔の下限で薄く保つ */
 let sparkAt=-1, sparkNotes=null, sparkSpill=null, sparkLastTime=-999;
+let sparkOff=null, sparkRhythm=null;    // その回の置き場所の型と、その名前 (D-74)
+let sparkLabel='', sparkLabelBar=-1;    // どの型で出たかを monitor に出す (D-74)
 
 const SPARK_GAP=22;   // 秒。これより短い間隔では続けて出さない
+
+/* ---- リフのリズムの型 (D-74) ----
+   off は小節頭から数えた16分の位置。負なら前の小節の終わり (食い)、
+   16以上なら次の小節へはみ出す。音は3〜5個なので先頭から使うぶんだけ取る。
+   置き場所をこの1本の列に寄せたので、食い・素・後ろ乗り・はみ出しが同じ規則になる */
+const SPARK_RHYTHMS={
+  quarter:[0,4,8,12,16],    // 素の4分。5音めは次の小節の頭 (D-48 の唯一の形)
+  push:   [-1,3,7,11,16],   // 食い。前の小節の15から入る
+  eighth: [0,2,4,8,16],     // 8分の寄せ。頭に固まって後ろが空く
+  three:  [0,3,6,9,12],     // 16分3つ歩き。小節の中で完結する
+  laid:   [4,8,12,16,20],   // 後ろ乗り。小節頭を空け、次の小節へ渡る
+  syncope:[0,4,7,12,18],    // シンコペ。3拍目の裏を食う
+};
+
+/* 置き場所の型を引く (D-74)。重みはまだ平ら (群ごとの性格は D-76 で入れる)。
+   食い (push) は sparkAt-1 の小節で置くので、その小節がもう過ぎている
+   sparkAt=bar+1 の枝では引かない。planSpark は placeSpark の末尾で呼ばれ、
+   その小節の置き場所の判定はもう終わっているため */
+function drawSparkRhythm(bar){
+  if(forcedSparkRhythm) return forcedSparkRhythm;
+  const names=Object.keys(SPARK_RHYTHMS).filter(k=>!(k==='push' && sparkAt===bar+1));
+  return pick(names);
+}
 
 function planSpark(bar){
   if(bar%4!==0 || phrase==='break') return;
@@ -2775,7 +2807,12 @@ function planSpark(bar){
     p=clamp(r/Math.max(1-r*g,.25),.08,.5);
   }
   if(Math.random()>=p) return;
-  sparkAt = bar + (Math.random()<.62 ? 3 : 1);     // 4小節め寄り、たまに2小節め
+  /* 食いを固定したときは、食いを置く小節 (sparkAt-1) が残る枝に寄せる。
+     sparkAt=bar+1 だとその小節はもう過ぎていて、食いが出ないため (D-74) */
+  const laterOnly = forcedSparkRhythm==='push';
+  sparkAt = bar + ((laterOnly || Math.random()<.62) ? 3 : 1);   // 4小節め寄り、たまに2小節め
+  sparkRhythm = drawSparkRhythm(bar);              // 置き場所の型 (D-74)
+  sparkOff = SPARK_RHYTHMS[sparkRhythm];
   // 旋律は和音の構成音だけで作る。順次進行を主に、2割ほど跳ぶ。
   // 調と度数で和音の位置が動くので、4フィートの音域へ畳んでから使う
   const tones=[...new Set(coreNotes(72).map(n=>{
@@ -2834,15 +2871,33 @@ function placeFill(bar,fillBar){
 }
 
 /* ---- キラキラのリフ (D-48) を置く ----
-   4分音符なので 0/4/8/12 に置き、5音めは次の小節の頭へ回す */
+   置き場所は型 (D-74) の16分オフセット。負なら前の小節の終わりへ食い込み、
+   16以上なら次の小節へはみ出す。前の小節へは後から書き戻せないので
+   (onBar はその小節のステップ0を予約する直前に走る)、食いは sparkAt-1 の小節で置く */
 function placeSpark(bar){
   seq.spark=new Array(16).fill(null);
-  if(sparkSpill){ seq.spark[0]=sparkSpill; sparkSpill=null; }
-  if(bar===sparkAt && sparkNotes && phrase!=='break'){
-    sparkNotes.forEach((nt,i)=>{ if(i<4) seq.spark[i*4]=nt; else sparkSpill=nt; });
-    sparkLastTime=ctx.currentTime;
+  // 前の小節からはみ出したぶんを先に置く。任意のステップに来る (D-74)
+  if(sparkSpill){
+    // ブレイクに落ちたら捨てる。無音に1音だけ刺さるのを防ぐ
+    if(phrase!=='break') for(const sp of sparkSpill) seq.spark[sp.i]=sp.nt;
+    sparkSpill=null;
   }
-  if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; }   // 取りこぼしたら捨てる
+  const on = sparkNotes && sparkOff && phrase!=='break';
+  // 食い。次の小節に出るリフの頭だけを、この小節の終わりへ置く
+  if(on && bar===sparkAt-1)
+    sparkNotes.forEach((nt,i)=>{ const o=sparkOff[i]; if(o<0) seq.spark[16+o]=nt; });
+  if(on && bar===sparkAt){
+    const spill=[];
+    sparkNotes.forEach((nt,i)=>{
+      const o=sparkOff[i];
+      if(o<0) return;                                  // 食いで前の小節に置いた
+      if(o<16) seq.spark[o]=nt; else spill.push({i:o-16, nt});
+    });
+    sparkSpill = spill.length ? spill : null;
+    sparkLastTime=ctx.currentTime;
+    sparkLabel=sparkRhythm; sparkLabelBar=bar;       // monitor 用 (D-74)
+  }
+  if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; sparkOff=null; }   // 取りこぼしたら捨てる
   planSpark(bar);                                    // 次を仕込む
 }
 
@@ -3547,7 +3602,9 @@ function showProgress(){
   const inScene=barCount-sceneStartBar+1;
   // いまの小節の装飾。ダブを先に見る (ダブの小節ではオカズは置き直されている)
   const deco = dubBar===barCount ? '  dub' : curFillBar ? '  fill' : '';
-  pBarPos.textContent=`${inPhrase}/${PHRASE_BARS}  (scene ${inScene}/${sceneBars})${deco}${loopBar?'  loop':''}`;
+  // リフが出た小節は置き場所の型を出す (D-74)。オカズと同居しうるので deco の三項には混ぜない
+  const rf = sparkLabelBar===barCount ? `  riff ${sparkLabel}` : '';
+  pBarPos.textContent=`${inPhrase}/${PHRASE_BARS}  (scene ${inScene}/${sceneBars})${deco}${rf}${loopBar?'  loop':''}`;
   // 点滅 (D-62)。シーンが変わる直前の小節のシーン名と、押してから乗り換わるまでの next
   sceneNameEl.classList.toggle('blink', running && pendingScene>=0 && barCount===transitionEndBar-1);
   nextBtn.classList.toggle('blink', running && nextPending && pendingScene>=0);
@@ -3799,7 +3856,7 @@ function stopAudio(){
   running=false;
   setPowerUI(false);
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
-  pendingScene=-1; transitionEndBar=-1; seqB=null; pendingSpill=null;
+  pendingScene=-1; transitionEndBar=-1; seqB=null; pendingSpill=null; sparkSpill=null;
   evLeadUntil=0; nextPending=false;
   if(phaserWet){ phaserWet.gain.cancelScheduledValues(ctx.currentTime); phaserWet.gain.setValueAtTime(0,ctx.currentTime); }
   if(drumMixB) endMixFades(ctx.currentTime);

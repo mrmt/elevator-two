@@ -280,6 +280,62 @@ test('並びが切り替わる前の小節にオカズが入る', async ({ page 
   expect(late).toBeGreaterThan(head);
 });
 
+test('リフは置き場所の型どおりに並ぶ', async ({ page }) => {
+  test.setTimeout(150000);
+  /* D-74。置き場所の型を ?sparkrhythm= で固定して、打点の間隔だけを見る。
+     three (16分3つ歩き) を使うのは、間隔が必ず3で、しかも小節の中で完結するので
+     はみ出しの例外を判定に混ぜずに済むため。素の抽選では6型のどれが来るか分からず、
+     リフ自体も毎分1〜2回しか出ないので ?spark と併せて待ちを消す。
+     引くところを固定するだけで、置く規則は素のままなのでここで見る性質は変わらない。
+     リフの音は sparkNote 固有の署名で拾う: 鋸で |detune| が 13〜24
+     (leadNote の鋸は ±6、padPluck は 0)。1音につき鋸2基なので同時刻は畳む */
+  await page.addInitScript(() => {
+    window.__riff = [];
+    const orig = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const o = orig.call(this);
+      const start = o.start.bind(o);
+      o.start = function (when, ...rest) {
+        const d = Math.abs(o.detune.value);
+        if (o.type === 'sawtooth' && d >= 13 && d <= 24 && typeof when === 'number') {
+          window.__riff.push(when);
+        }
+        return start(when, ...rest);
+      };
+      return o;
+    };
+  });
+  await page.goto('/index.html?spark&sparkrhythm=three&dub=0');
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak
+  await page.locator('#s_glitch').fill('0');         // グリッチは32分に置き直すので切る
+  await page.locator('#s_bpm').fill('140');
+  await page.locator('#play').click();
+  await page.waitForTimeout(1200);
+  const bpm = parseInt(await page.locator('#rbpm').textContent(), 10);
+
+  const dedup = ts => [...new Set(ts.map(t => t.toFixed(4)))].map(Number).sort((a, b) => a - b);
+  await page.evaluate(() => { window.__riff.length = 0; });
+  let hits = [];
+  for (let waited = 0; waited < 100000; waited += 5000) {
+    await page.waitForTimeout(5000);
+    hits = dedup(await page.evaluate(() => window.__riff));
+    if (hits.length >= 15) break;
+  }
+  expect(hits.length).toBeGreaterThanOrEqual(15);
+
+  // 16分に直し、同じリフの中で隣り合う音の間隔を見る。
+  // 6ステップより空いたら別のリフとみなす (1回の置き場所は20ステップに収まる)
+  const step = 60 / bpm / 4;
+  const nums = hits.map(t => Math.round((t - hits[0]) / step));
+  const gaps = [];
+  for (let i = 1; i < nums.length; i++) {
+    const d = nums[i] - nums[i - 1];
+    if (d > 0 && d <= 6) gaps.push(d);
+  }
+  expect(gaps.length).toBeGreaterThanOrEqual(8);
+  expect(gaps.filter(d => d === 3).length / gaps.length).toBeGreaterThan(0.8);
+});
+
 test('16分のシーケンスが鳴る', async ({ page }) => {
   test.setTimeout(60000);
   // D-21。潜行はスタブ回路のシーンなので、持続回路の層 (アルペジオと高域リフ) は出ない。
