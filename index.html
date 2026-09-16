@@ -1756,9 +1756,10 @@ function epChord(time,vel){
 /* ---- キラキラのリフの発音 (D-48) ----
    鋸2基と矩形1基を重ねて厚みを出し、共通の LFO を detune に掛けて濁らせる。
    アタックは速く、短いディケイで落として伸ばさない。コーラスは回路側が持つ */
-function sparkNote(time,midi,vel){
+function sparkNote(time,midi,vel,sh){
   const f=mtof(midi);
-  const dec=rand(.18,.30);
+  // 音価は群ごとの性格で伸縮する (D-76)。ベルの減衰は下の上限で止まる
+  const dec=rand(.18,.30)*((sh&&sh.dec)||1);
   const nodes=[];
 
   const sum=ctx.createGain(); sum.gain.value=.5;
@@ -1826,7 +1827,7 @@ function sparkNote(time,midi,vel){
     mg.gain.exponentialRampToValueAtTime(Math.max(cf*.12,1),time+bellDec*.5);
     mod.connect(mg).connect(car.frequency);
     bg.gain.setValueAtTime(.0001,time);
-    bg.gain.exponentialRampToValueAtTime(Math.max(vel*.078*lv('bell'),.0002),time+.002);
+    bg.gain.exponentialRampToValueAtTime(Math.max(vel*.078*lv('bell')*((sh&&sh.bell)||1),.0002),time+.002);
     bg.gain.exponentialRampToValueAtTime(.0001,time+bellDec);
     car.connect(bg).connect(pn);
     for(const o of [car,mod]){ o.start(time); o.stop(time+bellDec+.06); }
@@ -2197,6 +2198,11 @@ const forcedSparkRhythm=(()=>{
 const forcedSparkMotif=(()=>{
   const v=QS.get('sparkmotif');
   return v===null ? null : !(v==='0' || v==='false');
+})();
+/* 開発用。?sparkfold=high でリフの畳み先を固定する (D-76)。mid / high */
+const forcedSparkFold=(()=>{
+  const v=QS.get('sparkfold');
+  return ['mid','high'].includes(v) ? v : null;
 })();
 let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
@@ -2803,6 +2809,40 @@ const SPARK_RHYTHMS={
   syncope:[0,4,7,12,18],    // シンコペ。3拍目の裏を食う
 };
 
+/* ---- リフの畳み先 (D-76) ----
+   上だけ振る。下げると「キラキラ」の性格が薄れ、D-52 のオクターブ下げが
+   ベースやスタブの域まで降りてしまう。幅は20半音のまま保つ */
+const SPARK_FOLDS={mid:[70,89], high:[75,94]};
+
+/* ---- 群ごとのリフの性格 (D-76) ----
+   n は音数の幅、fold は畳み先の重み、rhythm は型の重み、
+   bell はベルの量の倍率、dec は音価の倍率。
+   SCENES の行には置かない。性格は群ごと (4行) なのに SCENES は14行あり、
+   同じ値を3〜4回書くことになる。SCALES / MODE_LABEL / CIRCUIT_LABEL が既に
+   群をキーにした別表で、SCENES の行はシーン固有の値だけを持つ分担になっている */
+const SPARK_PROFILE={
+  stab:   {n:[3,4], fold:{mid:3,high:1}, bell:1.35, dec:1.15,
+           rhythm:{quarter:4,eighth:1,three:0,laid:2,push:0,syncope:1}},
+  jazz:   {n:[3,5], fold:{mid:3,high:2}, bell:1.00, dec:1.00,
+           rhythm:{quarter:2,eighth:2,three:1,laid:1,push:1,syncope:3}},
+  funk:   {n:[3,5], fold:{mid:2,high:3}, bell:0.70, dec:0.75,
+           rhythm:{quarter:1,eighth:2,three:3,laid:1,push:4,syncope:2}},
+  sustain:{n:[4,5], fold:{mid:3,high:2}, bell:1.00, dec:1.00,
+           rhythm:{quarter:3,eighth:3,three:1,laid:1,push:1,syncope:1}},
+};
+const sparkProfile = () => SPARK_PROFILE[circuit()] || SPARK_PROFILE.jazz;
+
+/* 重みから引く。choosePhrase() が SCENES の w を読むのと同じ
+   「合計を取って乱数を引く」形。候補を絞れるようキーの一覧も渡せる */
+function wpick(w,keys){
+  const ks=keys||Object.keys(w);
+  let sum=0; for(const k of ks) sum+=w[k]||0;
+  if(sum<=0) return ks[0];
+  let r=Math.random()*sum;
+  for(const k of ks){ r-=(w[k]||0); if(r<=0) return k; }
+  return ks[ks.length-1];
+}
+
 /* 置き場所の型を引く (D-74)。重みはまだ平ら (群ごとの性格は D-76 で入れる)。
    食い (push) は sparkAt-1 の小節で置くので、その小節がもう過ぎている
    sparkAt=bar+1 の枝では引かない。planSpark は placeSpark の末尾で呼ばれ、
@@ -2810,14 +2850,15 @@ const SPARK_RHYTHMS={
 function drawSparkRhythm(bar){
   if(forcedSparkRhythm) return forcedSparkRhythm;
   const names=Object.keys(SPARK_RHYTHMS).filter(k=>!(k==='push' && sparkAt===bar+1));
-  return pick(names);
+  return wpick(sparkProfile().rhythm,names);   // 型の重みは群ごと (D-76)
 }
 
-// 和音を4フィートの音域へ畳んだ音の集合。リフはこの中だけを歩く
-function sparkTones(){
+// 和音を畳み先の音域へ収めた音の集合。リフはこの中だけを歩く (音域は D-76 で振る)
+function sparkTones(fold){
+  const [lo,hi]=SPARK_FOLDS[fold]||SPARK_FOLDS.mid;
   return [...new Set(coreNotes(72).map(n=>{
-    while(n<70) n+=12;
-    while(n>89) n-=12;
+    while(n<lo) n+=12;
+    while(n>hi) n-=12;
     return n;
   }))].sort((a,b)=>a-b);
 }
@@ -2910,7 +2951,10 @@ function planSpark(bar){
      sparkAt=bar+1 だとその小節はもう過ぎていて、食いが出ないため (D-74) */
   const laterOnly = forcedSparkRhythm==='push';
   sparkAt = answerNow ? bar+1 : bar + ((laterOnly || Math.random()<.62) ? 3 : 1);
-  const tones=sparkTones();
+  const prof=sparkProfile();
+  // 畳み先は回ごとに引く (D-76)。応答も引き直すので、同じ形が別の高さで返ることがある
+  const fold = forcedSparkFold || wpick(prof.fold);
+  const tones=sparkTones(fold);
 
   /* 覚えた形を使い回すか、新しく引くか (D-75)。
      応答は必ず変奏なので、覚えた形の側に入る */
@@ -2928,7 +2972,8 @@ function planSpark(bar){
   }else{
     // リズムだけ前の形から引き継ぐことがある。旋律を替えても身振りは残る
     sparkRhythm = (sparkMotif && Math.random()<.3) ? sparkMotif.rhythm : drawSparkRhythm(bar);
-    const n=3+Math.floor(Math.random()*3);           // 音は3〜5個
+    const [nLo,nHi]=prof.n;                          // 音数の幅は群ごと (D-76)
+    const n=nLo+Math.floor(Math.random()*(nHi-nLo+1));
     const {line,leap}=drawSparkLine(tones,n);
     sparkNotes=sparkVoice(tones,line,leap);
     const steps=[];
@@ -2939,6 +2984,8 @@ function planSpark(bar){
   // 応答は sparkAt=bar+1 なので、食いを置く小節がもう過ぎている (D-74)
   if(answerNow && sparkRhythm==='push') sparkRhythm='quarter';
   sparkOff = SPARK_RHYTHMS[sparkRhythm];
+  // 音価とベルの量は群の性格から (D-76)。ノートに載せて sparkNote へ渡す
+  for(const nt of sparkNotes){ nt.dec=prof.dec; nt.bell=prof.bell; }
   sparkMotifUse = sparkMotif.uses;
   /* 呼びかけには応答を仕込む。応答からは繋げない (際限なく続くため) */
   const canAnswer = !answerNow &&
@@ -3226,7 +3273,7 @@ function playStep(i,time){
   if(seq.ep[i])   epChord(time,seq.ep[i]);
   // キラキラのリフ (D-48)
   const sp=seq.spark[i];
-  if(sp) sparkNote(time,sp.midi,sp.vel);
+  if(sp) sparkNote(time,sp.midi,sp.vel,sp);   // 音価とベルの量もノートが持つ (D-76)
   // インダストリアル・ノイズ。小節ではなく通し番号で回すのでポリリズムになる (D-38)
   if(noiseOn && phrase!=='break'){
     const g0=barCount*16+i;
