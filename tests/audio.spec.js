@@ -104,6 +104,22 @@ test('発音インジケーターは鳴っている間だけ灯り、MUTE する
   expect(await litCount('kick', 3000)).toBeGreaterThan(0);
   expect(await litCount('bass', 4000)).toBeGreaterThan(0);
 
+  /* ドラム系は発音の頭だけ光る。kick は4つ打ちなので、灯りっぱなしにならず拍ごとに点き直す。
+     126BPM の3秒で約6拍。節目の変形 (抜きなど) で減っても3回は下らない */
+  const riseCount = (key, ms) => page.evaluate(async ({ key, ms }) => {
+    const el = document.getElementById('led_' + key);
+    let n = 0, prev = false;
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+      const v = el.classList.contains('on');
+      if (v && !prev) n++;
+      prev = v;
+      await new Promise(r => setTimeout(r, 15));
+    }
+    return n;
+  }, { key, ms });
+  expect(await riseCount('kick', 3000)).toBeGreaterThanOrEqual(3);
+
   await page.locator('#mute_kick').click();
   await page.locator('#mute_bass').click();
   // MUTE の前に予約済みだった音 (先読み 0.12 秒と、長いベースの音価) が鳴り終わるのを待つ

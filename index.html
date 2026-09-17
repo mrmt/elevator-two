@@ -574,8 +574,12 @@ const lv = k => (mute.has(k) || (soloAny && !solo.has(k))) ? 0 : mix[k];
    ここで lv を見て、聞こえないものは積まない。mixer に無い音 (reverse) は絞れないので見ない。
    ごく短い打点も目に見えるよう、最低 80ms は灯す */
 const voiceSpans={}, leds={};
+/* ドラム系 (mixer の drums 群) は発音の頭だけ光らせる。減衰が拍の間隔より長いものがあり
+   (kick は約0.9秒、4つ打ちの間隔は約0.47秒)、鳴り終わりまで灯すと重なって灯りっぱなしになる */
+const ONSET_ONLY=new Set(MIX_GROUPS.find(([g])=>g==='drums')[1]);
 function markVoice(key,start,end){
   if((key in MIX) && !(lv(key)>0)) return;
+  if(ONSET_ONLY.has(key)) end=start;   // 下の最低 80ms だけ灯る
   (voiceSpans[key] || (voiceSpans[key]=[])).push({start, end:Math.max(end,start+.08)});
 }
 
