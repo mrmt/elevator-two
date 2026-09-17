@@ -1828,8 +1828,13 @@ function sparkNote(time,midi,vel,sh){
     // 鐘の音色はこの比で決まる。手で倍率を掛けられる (D-54)
     mod.frequency.value=cf*pick([1.41,2.76,3.5])*mix.bellRatio;
     // 変調指数は落としながら鳴らす。倍音が減っていくのが鐘らしさになる
-    mg.gain.setValueAtTime(cf*rand(2.2,4),time);
-    mg.gain.exponentialRampToValueAtTime(Math.max(cf*.12,1),time+bellDec*.5);
+    /* ベルはフィルタを通さない (芯が消えるため) ので、明暗は変調の側で付ける (D-78)。
+       本体のカットオフと同じ値から深さを決め、レゾナンスが強い回ほど変調を長く残して
+       金属の鳴りを引きずらせる。どちらもフレーズ内の動き込みのノートの値を使う */
+    const bright=Math.sqrt(clamp((sh&&sh.cut)||1,.4,2.5));   // 0.63〜1.58
+    const ringK=1+Math.max(q-4,0)/14;                          // Q4 で 1、Q18 で 2
+    mg.gain.setValueAtTime(cf*rand(2.2,4)*bright,time);
+    mg.gain.exponentialRampToValueAtTime(Math.max(cf*.12,1),time+Math.min(bellDec*.5*ringK,bellDec));
     mod.connect(mg).connect(car.frequency);
     bg.gain.setValueAtTime(.0001,time);
     bg.gain.exponentialRampToValueAtTime(Math.max(vel*.078*lv('bell')*((sh&&sh.bell)||1),.0002),time+.002);
