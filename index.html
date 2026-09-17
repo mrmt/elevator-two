@@ -478,6 +478,11 @@
 "use strict";
 
 const VERSION='v0.5';
+/* コミット番号 (D-81)。git archive で配ると、.gitattributes の export-subst が
+   ここを HEAD の短いハッシュに置き換える。手元で直接開いたときは置き換わらないので出さない。
+   git はファイル中の同じ書式をすべて置き換えるので、この書式はここ以外に書かないこと */
+const COMMIT='$Format:%h$';
+const VERSION_LABEL = /^[0-9a-f]{7,}$/.test(COMMIT) ? `${VERSION} ${COMMIT.slice(0,7)}` : VERSION;
 
 const lerp=(a,b,u)=>a+(b-a)*u;
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
@@ -3580,7 +3585,7 @@ setInterval(()=>{ if(performance.now()-smoothAt>=250) smooth(); }, 100);
 /* ============================================================
    UI
    ============================================================ */
-document.getElementById('ver').textContent=VERSION;
+document.getElementById('ver').textContent=VERSION_LABEL;   // tag と、配信時はコミット番号 (D-81)
 const sceneNameEl=document.getElementById('scenename');
 const scenesEl=document.getElementById('scenes');
 let sceneEdited=false;   // 手でスライダーを動かした印。one の (edit) と同じ

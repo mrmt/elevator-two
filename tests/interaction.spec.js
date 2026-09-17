@@ -227,6 +227,15 @@ test('再生開始時のシーンは stab / dark の群から選ばない', asyn
   expect(seen.filter(s => STAB.includes(s)), `選ばれたシーン: ${seen.join(', ')}`).toEqual([]);
 });
 
+test('バージョン表示は tag だけで、置き換え前の書式は見せない', async ({ page }) => {
+  /* D-81 (#16)。コミット番号は git archive で配るときに差し込まれる。
+     テストは作業ツリーの index.html をそのまま配信するので、ここでは番号は出ず、
+     置き換え前の書式の文字列も表示に漏れないことを見る。
+     狭い画面ではバージョンごと隠れる (D-71) ので、表示ではなく中身で見る */
+  const ver = (await page.locator('#ver').textContent()).trim();
+  expect(ver).toMatch(/^v\d+\.\d+$/);
+});
+
 test('タイトルの左に、上の階層へのアイコンのリンクがある', async ({ page }) => {
   // D-69。アイコンは index.html に埋め込み、色は --ink
   const link = page.locator('header > a.home');

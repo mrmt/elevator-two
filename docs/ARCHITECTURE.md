@@ -5,6 +5,9 @@
 
 現在の実装状況は README を参照。ここには**いま動いているもの**を書く。
 
+バージョンは `VERSION` (tag) と `COMMIT` を持つ。`COMMIT` は `.gitattributes` の `export-subst` で、
+`git archive` で配るときに HEAD の短いハッシュへ置き換わる (D-81)。置き換わっていなければ番号は出さない。
+
 ## 本体の構成
 
 | 節 | 役割 |
