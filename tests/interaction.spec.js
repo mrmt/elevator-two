@@ -227,6 +227,22 @@ test('再生開始時のシーンは stab / dark の群から選ばない', asyn
   expect(seen.filter(s => STAB.includes(s)), `選ばれたシーン: ${seen.join(', ')}`).toEqual([]);
 });
 
+test('mixer の発音要素すべてに発音インジケーターがある', async ({ page, isMobile }) => {
+  /* D-82 (#17)。音量のある20行すべてに1つずつ。倍率の bell FM ratio は発音しないので付けない。
+     mixer に無い発音要素 (reverse) は、インジケーターだけの行を置く */
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  const keys = ['kick', 'snare', 'clap', 'hat', 'ohat', 'cymbal', 'tom', 'rim', 'perc', 'cowbell',
+                'bassFunk', 'bass', 'strings', 'chop', 'stab', 'ep', 'lead', 'riff', 'bell', 'noise'];
+  for (const k of keys) {
+    await expect(page.locator(`.param:has(#s_mix_${k}) .led`), k).toHaveCount(1);
+  }
+  await expect(page.locator('.param:has(#s_mix_bellRatio) .led')).toHaveCount(0);
+  await expect(page.locator('#mixer #led_reverse')).toHaveCount(1);
+  await expect(page.locator('#mixer .led')).toHaveCount(keys.length + 1);
+  // 止まっている間は1つも灯らない
+  await expect(page.locator('#mixer .led.on')).toHaveCount(0);
+});
+
 test('バージョン表示は tag だけで、置き換え前の書式は見せない', async ({ page }) => {
   /* D-81 (#16)。コミット番号は git archive で配るときに差し込まれる。
      テストは作業ツリーの index.html をそのまま配信するので、ここでは番号は出ず、

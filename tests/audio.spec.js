@@ -83,6 +83,37 @@ test('スネアを SOLO するとキックが鳴らなくなる', async ({ page 
   expect(await page.evaluate(() => window.__kicks)).toBe(0);
 });
 
+test('発音インジケーターは鳴っている間だけ灯り、MUTE すると灯らない', async ({ page }) => {
+  test.setTimeout(90000);
+  /* D-82 (#17)。曙は4つ打ちなので kick は必ず鳴り、snare も2拍4拍に来る。
+     bass は量をバス側で絞る音源の代表 (MUTE しても音自体は作られるので、記録の側で lv を見ている)。
+     一定時間のうちに一度でも灯ったかを数える */
+  await page.locator('.scenebtn').nth(11).click();   // 曙 daybreak
+  await page.locator('#play').click();
+  const litCount = (key, ms) => page.evaluate(async ({ key, ms }) => {
+    const el = document.getElementById('led_' + key);
+    let n = 0;
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+      if (el.classList.contains('on')) n++;
+      await new Promise(r => setTimeout(r, 20));
+    }
+    return n;
+  }, { key, ms });
+
+  expect(await litCount('kick', 3000)).toBeGreaterThan(0);
+  expect(await litCount('bass', 4000)).toBeGreaterThan(0);
+
+  await page.locator('#mute_kick').click();
+  await page.locator('#mute_bass').click();
+  // MUTE の前に予約済みだった音 (先読み 0.12 秒と、長いベースの音価) が鳴り終わるのを待つ
+  await page.waitForTimeout(2500);
+  expect(await litCount('kick', 3000)).toBe(0);
+  expect(await litCount('bass', 3000)).toBe(0);
+  // 黙らせていない音源は灯り続ける
+  expect(await litCount('snare', 4000)).toBeGreaterThan(0);
+});
+
 test('音の予約が16分のグリッドに乗る', async ({ page }) => {
   test.setTimeout(60000);
   await installScheduleProbe(page);

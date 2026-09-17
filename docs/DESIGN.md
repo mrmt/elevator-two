@@ -1533,6 +1533,46 @@ D-60 でネットワークにも繋がないので、実行時に問い合わせ
 確認: ブランチを動かさずに一時的なコミットオブジェクトを作って `git archive` で取り出すと、
 作業ツリーとの差分は COMMIT の1行だけで、配信した表示は `v0.5 e2305da` (その一時コミットの短いハッシュ) になった。
 
+### D-82. mixer の発音要素すべてに発音インジケーターを置く (2026-09-17, Issue #17)
+
+多くの発音回路が鳴るのに、どれがいつ鳴っているのかが見えなかった。
+
+**記録は発音関数の中で行う。** 終わる時刻の多くは関数の中の乱数やキットで決まり (リフやノイズの減衰など)、
+呼び出し側は知らない。`markVoice(key, 開始, 終了)` を1つ置き、音を置いた時刻と鳴り終わる時刻 (音声時計) を積む。
+音は先読みで未来に予約されるので、描画のたびに `ctx.currentTime` と比べて灯す
+(monitor のステップ列の `uiSteps` → `runStepUI` と同じ考え方)。
+
+- **量の反映の仕方が2通りあるので、記録の側で `lv` を見る。** ドラムとリフは1音ごとに `lv` を読み、0 なら音を作らない。
+  bass・strings・chop・stab・ep・lead・noise は、MUTE 中も音を作ったうえで `apply()` がバスの量で黙らせている。
+  そのまま積むと MUTE しても灯るので、`markVoice` が `lv(key)>0` でないものは積まない
+- strings の持続音は1音ずつの予約が無いので、`apply()` と同じ条件 (sustain か funk、層が1つ以上、連打でない) で灯す。
+  アルペジオと高域リフは1音ずつ積む
+- bass は funk とそれ以外で量のキーが違う (bassFunk / bass) ので、`circuit()` で振り分ける
+- ごく短い打点 (rim は 0.06秒) も見えるよう、最低 80ms は灯す
+- **mixer に無い発音要素は reverse イベントのノイズだけ。** drumBus へ直に出て、どの量も通らない。
+  テクスチャ群の末尾に、スライダーも SOLO / MUTE も無いインジケーターだけの行を置いた。
+  dub・残響・feedback などは音源ではなく効果なので置かない
+- 表示は名前の直後の小さなランプ。行の構造と既存の id は変えていない。倍率の bell FM ratio は発音しないので付けない
+- `industrialHit` は同じ本体の定義が2つある (1つは `buildHarmony` の中の使われない重複)。
+  どちらが呼ばれても灯るよう両方に記録を入れた。重複そのものは今回は整理していない
+- オシレータや AudioParam のランプは増やしていない (音を数える既存の試験に触らないため)
+
+**確認** (`?spark`、各30秒。群ごとに鳴る音源が違うので4つの群を回した)。21個のランプすべてが、どこかで灯った。
+
+| シーン | 灯ったもの (灯らなかったものは、その群では鳴らない音源) |
+| --- | --- |
+| 潜行 (stab) | kick snare hat ohat cymbal rim perc bass stab lead riff bell noise |
+| 薄暮 (jazz) | kick snare hat ohat cymbal tom perc bass ep lead riff bell |
+| 火花 (funk) | kick snare clap hat ohat cymbal tom perc cowbell bassFunk chop lead riff bell **reverse** (発火した回) |
+| 曙 (sustain) | kick snare hat ohat cymbal perc bass strings lead riff bell |
+
+曙では stab・chop・bassFunk は一度も灯らず、鳴らない群の音源が誤って灯ることもなかった。
+試験では、曙で kick と bass が灯り、両方を MUTE すると (予約済みの音が鳴り終わってから) 灯らなくなり、
+黙らせていない snare は灯り続けることを見ている。
+
+**見え方の注意。** kick は減衰 (約0.9秒) が4つ打ちの拍の間隔 (約0.47秒) より長いので、発音が重なって灯りっぱなしになる。
+「発音開始から終了まで」の定義どおりだが、拍ごとの明滅にはならない。
+
 ---
 
 ## 検討中の論点

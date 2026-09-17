@@ -8,6 +8,11 @@
 バージョンは `VERSION` (tag) と `COMMIT` を持つ。`COMMIT` は `.gitattributes` の `export-subst` で、
 `git archive` で配るときに HEAD の短いハッシュへ置き換わる (D-81)。置き換わっていなければ番号は出さない。
 
+発音インジケーター (D-82) は、発音関数が `markVoice(key, 開始, 終了)` で音声時計の時刻を積み、
+rAF の `draw()` から呼ぶ `updateLeds()` が `ctx.currentTime` と比べて mixer のランプ (`#led_<key>`) を灯す。
+`markVoice` は `lv(key)>0` でないものを積まないので、バス側で黙らせる音源も MUTE / SOLO に従う。
+strings の持続音だけは `apply()` と同じ条件で状態として判定する。mixer に無い reverse はインジケーターだけの行を持つ。
+
 ## 本体の構成
 
 | 節 | 役割 |
