@@ -972,36 +972,6 @@ function buildHarmony(){
   const kRev=ctx.createGain(); kRev.gain.value=.4;  sparkOut.connect(kRev).connect(revSend);
   const kDly=ctx.createGain(); kDly.gain.value=.35; sparkOut.connect(kDly).connect(dlySend);
 
-  /* ---- インダストリアル・ノイズの発音 (D-38) ----
-   1音ごとに音色を不規則に振る。素材・再生速度・フィルタの種類と帯域・
-   減衰の長さを毎回引き直すので、同じ音は二度と出ない */
-function industrialHit(time,vel,pan){
-  const metal=Math.random()<.45;
-  const src=ctx.createBufferSource();
-  src.buffer = metal ? metalBuf : noiseBuf;
-  src.loop=true;
-  src.playbackRate.value = metal ? rand(.35,2.6) : rand(.6,1.8);
-  // ときどき再生速度を落として、崩れ落ちるような音にする
-  if(Math.random()<.3) src.playbackRate.exponentialRampToValueAtTime(
-    Math.max(.15,src.playbackRate.value*rand(.25,.6)), time+rand(.08,.3));
-
-  const f=ctx.createBiquadFilter();
-  f.type = Math.random()<.55 ? 'bandpass' : 'highpass';
-  f.frequency.value = rand(320,7200);
-  f.Q.value = rand(.8,12);
-  if(Math.random()<.35) f.frequency.exponentialRampToValueAtTime(
-    Math.max(180,f.frequency.value*rand(.2,3)), time+rand(.06,.35));
-
-  const dec=rand(.02,.28);
-  const g=ctx.createGain(), pn=ctx.createStereoPanner();
-  pn.pan.value=clamp(pan+rand(-.08,.08),-1,1);
-  decayTo(g.gain,time,vel*.26,dec,.002);
-  src.connect(f).connect(g).connect(pn).connect(noiseBus);
-  markVoice('noise',time,time+dec+.05);
-  src.start(time); src.stop(time+dec+.05);
-  for(const n of [src,f,g,pn]) disposeAt(n,time+dec+.12);
-}
-
 /* ---- コード弾きの連打 (D-34) ----
      持続する音色の代わりに、サステインを持たない短い和音を連打する。
      専用のステレオディレイ (左右で返しを送り合う ping-pong) へ送り、
