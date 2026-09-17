@@ -2245,10 +2245,12 @@ const CROSS_GROUP=.8;   // 別の群へ渡る割合 (D-53)
 
 /* 波の位置から次のシーンを選ぶ。直近に出たものは避け、群をまたぐ相手を優先する (D-53)。
    回路もキットも入れ替わるので、変化がいちばん鮮やかに出る */
-function chooseScene(){
+/* avoid に群の名前を渡すと、その群のシーンを候補から外す。
+   再生開始時に stab を避けるのに使う (D-80)。遷移や next では渡さない */
+function chooseScene({avoid=null}={}){
   const yy=waveYY(wavePos);
   const cand=SCENES.map((s,i)=>({i,d:Math.abs(s.yy-yy)}))
-    .filter(c=>!recent.includes(c.i))
+    .filter(c=>!recent.includes(c.i) && SCENES[c.i].group!==avoid)
     .sort((a,b)=>a.d-b.d);
   if(!cand.length) return Math.floor(Math.random()*SCENES.length);
   const near=cand.slice(0,5);   // 波から離れすぎない範囲。この中で相手を選ぶ
@@ -4159,10 +4161,12 @@ document.addEventListener('focusin',  e=>{ const el=nearest(e.target); if(el) sh
 document.addEventListener('focusout', hideTip);
 window.addEventListener('blur', hideTip);
 
-// 初期シーンは波の位置 (陰寄り) から引く
+/* 初期シーンは波の位置 (陰寄り) から引く。ただし stab / dark の群は避ける (D-80)。
+   単調なので、そこから始まると最初の数分の体験が良くない。
+   波が陰寄りなので避けないと候補が stab に偏り、20回中6回 stab から始まっていた */
 wavePos=yyToWavePos(P.yy.def);
 newWavePeriod();
-enterScene(chooseScene());
+enterScene(chooseScene({avoid:'stab'}));
 pickProg();
 sceneBars=sceneLengthBars();
 readLook();

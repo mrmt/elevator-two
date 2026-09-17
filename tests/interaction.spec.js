@@ -211,6 +211,22 @@ test('next と loop bar は control にあり、PARAM の見出しは出さな�
   await expect(page.locator('#tab-mix > .eyebrow')).toBeHidden();
 });
 
+test('再生開始時のシーンは stab / dark の群から選ばない', async ({ page }) => {
+  test.setTimeout(90000);
+  /* D-80 (#18)。stab 群は単調なので、起動時のランダム選択では避ける。
+     起動時は波が陰寄りで、候補が stab に偏っていた。
+     確率の出現頻度ではなく「決して起きない」ことなので、読み込みを繰り返して確かめる。
+     並び順に依存しないよう、表示されているシーン名で判定する */
+  const STAB = ['submerge', 'moss', 'frost', 'pulse'];
+  const seen = [];
+  for (let n = 0; n < 20; n++) {
+    await page.goto('/index.html');
+    const name = (await page.locator('#scenename').textContent()).trim().split(' ')[0];
+    seen.push(name);
+  }
+  expect(seen.filter(s => STAB.includes(s)), `選ばれたシーン: ${seen.join(', ')}`).toEqual([]);
+});
+
 test('タイトルの左に、上の階層へのアイコンのリンクがある', async ({ page }) => {
   // D-69。アイコンは index.html に埋め込み、色は --ink
   const link = page.locator('header > a.home');
