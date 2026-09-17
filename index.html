@@ -1791,10 +1791,13 @@ function sparkNote(time,midi,vel,sh){
     nodes.push(o,g);
   }
 
-  // VCF: 立ち上がりで大きく開き、VCA と同じ速さで閉じる
+  /* VCF: 立ち上がりで大きく開き、VCA と同じ速さで閉じる。
+     明るさ・開き方・Q は音色の組から (D-77)。形が無ければ従来の値 */
   const fl=ctx.createBiquadFilter();
-  fl.type='lowpass'; fl.Q.value=4;
-  const base=Math.min(f*2.4+400,3600), peak=Math.min(base*4,12000);
+  const q=(sh&&sh.q!=null) ? sh.q : 4;
+  fl.type='lowpass'; fl.Q.value=q;
+  const base=clamp(Math.min(f*2.4+400,3600)*((sh&&sh.cut)||1), 250, 8000),
+        peak=Math.min(base*((sh&&sh.env)||4), 12000);
   fl.frequency.setValueAtTime(base,time);
   fl.frequency.exponentialRampToValueAtTime(peak,time+.004);
   fl.frequency.exponentialRampToValueAtTime(Math.max(base*.5,300),time+dec);
@@ -1803,7 +1806,9 @@ function sparkNote(time,midi,vel,sh){
   // VCA: アタック 3ms、サスティンを持たずディケイだけで落とす
   const amp=ctx.createGain();
   amp.gain.setValueAtTime(.0001,time);
-  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.3*lv('riff'),.0002),time+.003);
+  // Q は dB。4 を超えたぶんだけ下げる。4 以下では持ち上げない (従来の量を超えない) (D-77)
+  const qComp=Math.pow(10,-(Math.max(q,4)-4)*RES_COMP/20);
+  amp.gain.exponentialRampToValueAtTime(Math.max(vel*.3*lv('riff')*qComp,.0002),time+.003);
   amp.gain.exponentialRampToValueAtTime(.0001,time+dec);
   amp.gain.linearRampToValueAtTime(0,time+dec+.01);
   nodes.push(amp);
@@ -2204,6 +2209,16 @@ const forcedSparkFold=(()=>{
   const v=QS.get('sparkfold');
   return ['mid','high'].includes(v) ? v : null;
 })();
+/* 開発用。?sparkq=18 でリフのレゾナンスを dB で固定し、?sparkcut=2 でカットオフの
+   倍率を固定する (D-77)。量の補正を対にして測るのに使う。
+   qsRate は 0〜1 に丸めるので、ここは範囲を指定して読む */
+const qsNum=(key,lo,hi)=>{
+  const v=QS.get(key);
+  if(v===null) return null;
+  const n=parseFloat(v);
+  return Number.isFinite(n) ? clamp(n,lo,hi) : null;
+};
+const forcedSparkQ=qsNum('sparkq',.5,18), forcedSparkCut=qsNum('sparkcut',.25,4);
 let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
@@ -2790,6 +2805,7 @@ let sparkLabel='', sparkLabelBar=-1;    // どの型で出たかを monitor に�
    姿を変えて戻る) が成り立たない */
 let sparkMotif=null;        // {steps, rhythm, uses, life}
 let sparkMotifUse=0;        // その回が何回目の使い回しか。monitor に出す
+let sparkTimbre=null;       // その回の音色の組 (D-77)。応答はこれをそのまま使う
 let sparkAnswerAt=-1;       // 呼びかけに応答を返す小節 (D-75)
 const SPARK_REUSE=.5;       // 覚えた形を使い直す確率
 const SPARK_ANSWER=.35;     // 呼びかけに応答を返す確率
@@ -2813,6 +2829,53 @@ const SPARK_RHYTHMS={
    上だけ振る。下げると「キラキラ」の性格が薄れ、D-52 のオクターブ下げが
    ベースやスタブの域まで降りてしまう。幅は20半音のまま保つ */
 const SPARK_FOLDS={mid:[70,89], high:[75,94]};
+
+/* ---- リフの音色の組 (D-77) ----
+   回ごとに1組引き、フレーズ内でも動かす。1音ごとのミクロな揺らぎは耳に届かなかった
+   (D-74) ので、輪郭の単位で振る。応答 (D-75) は呼びかけと同じ組を使う */
+const SPARK_DEC={short:.55, mid:1, long:1.8};
+const SPARK_DEC_W={short:2, mid:4, long:2};
+const SPARK_RING=.15;   // Q 18 (発振寸前) にする割合。高さは D-29 の掃引と同じ
+/* Web Audio の lowpass の Q は dB。Q が 4 を超えたぶんだけ VCA を下げて、
+   発振寸前の回が突出しないようにする。補正なしでは Q 18 の出力ピークが Q 4 の 1.92倍だった。
+   0.3 と 0.4 を Q4/Q18 交互の3往復で比べ、peak・rms の比がともに 0.9 前後に収まる 0.3 にした。
+   ベルはフィルタを通らないので補正しない (D-77) */
+const RES_COMP=qsNum('sparkrescomp',0,1) ?? .3;   // 開発用に ?sparkrescomp= で差し替えて比べられる
+// フレーズ内の動き。u は音の位置 0〜1、last は最後の音かどうか
+const SPARK_CUT_SHAPE={
+  flat: u=>1,
+  open: u=>.6+u,              // 0.6 → 1.6。開いていく
+  close:u=>1.6-u,             // 1.6 → 0.6。閉じていく
+  arch: u=>.7+3.6*u*(1-u),    // 両端 0.7、真ん中 1.6。上って下る
+};
+const SPARK_DEC_SHAPE={
+  flat: (u,last)=>1,
+  grow: (u,last)=>.7+.8*u,    // 0.7 → 1.5。伸びていく
+  tail: (u,last)=>last?1.9:.85,   // 最後の音だけ長く残す
+};
+const SPARK_Q_SHAPE={
+  flat: u=>1,
+  rise: u=>.6+.8*u,           // 0.6 → 1.4。終わりへ向けて緊張させる
+};
+
+function drawSparkTimbre(){
+  const decK=wpick(SPARK_DEC_W);
+  let cut=Math.exp(rand(Math.log(.5),Math.log(2)));   // 暗い〜明るいを対数で一様に
+  // 短くて暗い回は合図として聴こえにくい。短いときは並より暗くしない
+  if(decK==='short') cut=Math.max(cut,1);
+  const ring = Math.random()<SPARK_RING;
+  const q = forcedSparkQ ?? (ring ? 18 : rand(2,12));
+  return {
+    dec:SPARK_DEC[decK], decShape:pick(Object.keys(SPARK_DEC_SHAPE)),
+    // 開発用に固定したときは動きも付けない。対にした計測を濁らせないため
+    cut:forcedSparkCut ?? cut,
+    cutShape: forcedSparkCut!=null ? 'flat' : pick(Object.keys(SPARK_CUT_SHAPE)),
+    env:rand(1.5,8),
+    // 発振寸前はそれだけで十分に際立つので、フレーズ内では動かさない
+    q, qShape: (q>=18 || forcedSparkQ!=null) ? 'flat' : pick(Object.keys(SPARK_Q_SHAPE)),
+    ring: q>=18,
+  };
+}
 
 /* ---- 群ごとのリフの性格 (D-76) ----
    n は音数の幅、fold は畳み先の重み、rhythm は型の重み、
@@ -2984,8 +3047,20 @@ function planSpark(bar){
   // 応答は sparkAt=bar+1 なので、食いを置く小節がもう過ぎている (D-74)
   if(answerNow && sparkRhythm==='push') sparkRhythm='quarter';
   sparkOff = SPARK_RHYTHMS[sparkRhythm];
-  // 音価とベルの量は群の性格から (D-76)。ノートに載せて sparkNote へ渡す
-  for(const nt of sparkNotes){ nt.dec=prof.dec; nt.bell=prof.bell; }
+  /* 音色の組 (D-77)。応答は呼びかけと同じ組をそのまま使い、形の変奏を聴き取りやすくする。
+     素の使い回し (応答でない m2 以降) は引き直す。同じ形が別の音色で戻るのは欲しい変化 */
+  if(!answerNow || !sparkTimbre) sparkTimbre=drawSparkTimbre();
+  const tb=sparkTimbre, last=sparkNotes.length-1;
+  // 音価とベルの量は群の性格 (D-76)、明るさ・開き方・Q は音色の組とフレーズ内の動きから。
+  // ノートに載せて sparkNote へ渡す
+  sparkNotes.forEach((nt,i)=>{
+    const u = last>0 ? i/last : 0;
+    nt.dec  = prof.dec*tb.dec*SPARK_DEC_SHAPE[tb.decShape](u,i===last);
+    nt.bell = prof.bell;
+    nt.cut  = tb.cut*SPARK_CUT_SHAPE[tb.cutShape](u);
+    nt.env  = tb.env;
+    nt.q    = clamp(tb.q*SPARK_Q_SHAPE[tb.qShape](u), .5, 18);
+  });
   sparkMotifUse = sparkMotif.uses;
   /* 呼びかけには応答を仕込む。応答からは繋げない (際限なく続くため) */
   const canAnswer = !answerNow &&
@@ -3046,7 +3121,11 @@ function placeSpark(bar){
     sparkSpill = spill.length ? spill : null;
     sparkLastTime=ctx.currentTime;
     // monitor 用 (D-74 / D-75)。m2 以降は覚えた形の使い回し
-    sparkLabel=sparkRhythm+(sparkMotifUse>1?'·m'+sparkMotifUse:''); sparkLabelBar=bar;
+    // 音色は輪郭が平らでなければその名前、発振寸前なら ring を足す (D-77)
+    const tb=sparkTimbre;
+    sparkLabel=sparkRhythm+(sparkMotifUse>1?'·m'+sparkMotifUse:'')
+      +(tb&&tb.cutShape!=='flat'?' '+tb.cutShape:'')+(tb&&tb.ring?' ring':'');
+    sparkLabelBar=bar;
   }
   if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; sparkOff=null; }   // 取りこぼしたら捨てる
   planSpark(bar);                                    // 次を仕込む
