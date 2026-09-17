@@ -211,10 +211,53 @@ test('next と loop bar は control にあり、PARAM の見出しは出さな�
   await expect(page.locator('#tab-mix > .eyebrow')).toBeHidden();
 });
 
+test('再生開始時のシーンは stab / dark の群から選ばない', async ({ page }) => {
+  test.setTimeout(90000);
+  /* D-80 (#18)。stab 群は単調なので、起動時のランダム選択では避ける。
+     起動時は波が陰寄りで、候補が stab に偏っていた。
+     確率の出現頻度ではなく「決して起きない」ことなので、読み込みを繰り返して確かめる。
+     並び順に依存しないよう、表示されているシーン名で判定する */
+  const STAB = ['submerge', 'moss', 'frost', 'pulse'];
+  const seen = [];
+  for (let n = 0; n < 20; n++) {
+    await page.goto('/index.html');
+    const name = (await page.locator('#scenename').textContent()).trim().split(' ')[0];
+    seen.push(name);
+  }
+  expect(seen.filter(s => STAB.includes(s)), `選ばれたシーン: ${seen.join(', ')}`).toEqual([]);
+});
+
+test('mixer の発音要素すべてに発音インジケーターがある', async ({ page, isMobile }) => {
+  /* D-82 (#17)。音量のある20行すべてに1つずつ。倍率の bell FM ratio は発音しないので付けない。
+     mixer に無い発音要素 (reverse) は、インジケーターだけの行を置く */
+  if (isMobile) await page.locator('.tab[data-tab="param"]').click();
+  const keys = ['kick', 'snare', 'clap', 'hat', 'ohat', 'cymbal', 'tom', 'rim', 'perc', 'cowbell',
+                'bassFunk', 'bass', 'strings', 'chop', 'stab', 'ep', 'lead', 'riff', 'bell', 'noise'];
+  for (const k of keys) {
+    await expect(page.locator(`.param:has(#s_mix_${k}) .led`), k).toHaveCount(1);
+  }
+  await expect(page.locator('.param:has(#s_mix_bellRatio) .led')).toHaveCount(0);
+  await expect(page.locator('#mixer #led_reverse')).toHaveCount(1);
+  await expect(page.locator('#mixer .led')).toHaveCount(keys.length + 1);
+  // 止まっている間は1つも灯らない
+  await expect(page.locator('#mixer .led.on')).toHaveCount(0);
+});
+
+test('バージョン表示は tag だけで、置き換え前の書式は見せない', async ({ page }) => {
+  /* D-81 (#16)。コミット番号は git archive で配るときに差し込まれる。
+     テストは作業ツリーの index.html をそのまま配信するので、ここでは番号は出ず、
+     置き換え前の書式の文字列も表示に漏れないことを見る。
+     狭い画面ではバージョンごと隠れる (D-71) ので、表示ではなく中身で見る */
+  const ver = (await page.locator('#ver').textContent()).trim();
+  expect(ver).toMatch(/^v\d+\.\d+$/);
+});
+
 test('タイトルの左に、上の階層へのアイコンのリンクがある', async ({ page }) => {
   // D-69。アイコンは index.html に埋め込み、色は --ink
   const link = page.locator('header > a.home');
   await expect(link).toHaveAttribute('href', '../');
+  // 遷移すると演奏が止まるので、about と同じく別のタブで開く (#15)
+  await expect(link).toHaveAttribute('target', '_blank');
   await expect(link.locator('svg path')).toHaveCount(3);
   await expect(link).toBeVisible();
   expect(await link.evaluate(el => getComputedStyle(el).color)).toBe('rgb(244, 244, 238)');

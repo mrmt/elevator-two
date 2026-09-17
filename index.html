@@ -248,6 +248,12 @@
     font-size:.72rem;letter-spacing:.16em;margin-bottom:.18rem;
   }
   .param .val{font-family:var(--data);font-size:.65rem;color:var(--amber);letter-spacing:.04em}
+  /* 発音インジケーター (D-82)。鳴っている間だけ灯る。名前の直後に置き、値は右端に残す */
+  .led{
+    flex:none;align-self:center;width:.42rem;height:.42rem;border-radius:50%;
+    margin:0 auto 0 .4rem;background:var(--line);transition:background .05s,box-shadow .05s;
+  }
+  .led.on{background:var(--amber);box-shadow:0 0 .35rem var(--amber)}
   input[type=range]{
     -webkit-appearance:none;appearance:none;width:100%;height:14px;background:transparent;
   }
@@ -393,7 +399,7 @@
 <body>
 
 <header>
-  <a class="home" href="../" aria-label="home" data-tip="Back to the parent page"><svg viewBox="0 0 512 512" aria-hidden="true"><g fill="currentColor">
+  <a class="home" href="../" target="_blank" rel="noopener" aria-label="home" data-tip="Back to the parent page"><svg viewBox="0 0 512 512" aria-hidden="true"><g fill="currentColor">
     <path fill-rule="evenodd" d="M48 0H464A48 48 0 0 1 512 48V464A48 48 0 0 1 464 512H48A48 48 0 0 1 0 464V48A48 48 0 0 1 48 0ZM72 34H440A38 38 0 0 1 478 72V440A38 38 0 0 1 440 478H72A38 38 0 0 1 34 440V72A38 38 0 0 1 72 34Z"/>
     <path d="M149 122L241 210L241 270L170 208V381H128V208L59 270V210Z"/>
     <path d="M342 135H385V310L457 247V306L364 394L272 307V247L342 310Z"/>
@@ -478,6 +484,11 @@
 "use strict";
 
 const VERSION='v0.5';
+/* コミット番号 (D-81)。git archive で配ると、.gitattributes の export-subst が
+   ここを HEAD の短いハッシュに置き換える。手元で直接開いたときは置き換わらないので出さない。
+   git はファイル中の同じ書式をすべて置き換えるので、この書式はここ以外に書かないこと */
+const COMMIT='$Format:%h$';
+const VERSION_LABEL = /^[0-9a-f]{7,}$/.test(COMMIT) ? `${VERSION} ${COMMIT.slice(0,7)}` : VERSION;
 
 const lerp=(a,b,u)=>a+(b-a)*u;
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
@@ -556,6 +567,21 @@ function saveMix(){
 const solo=new Set(), mute=new Set();
 let soloAny=false;
 const lv = k => (mute.has(k) || (soloAny && !solo.has(k))) ? 0 : mix[k];
+
+/* 発音インジケーター (D-82)。発音関数が、音を置いた時刻と鳴り終わる時刻 (どちらも音声時計) を積む。
+   音は先読みで未来に予約されるので、描画のたびに ctx.currentTime と比べて灯す。
+   量をバス側で絞る音源 (bass / strings / chop など) は、黙っていても音自体は作られるので、
+   ここで lv を見て、聞こえないものは積まない。mixer に無い音 (reverse) は絞れないので見ない。
+   ごく短い打点も目に見えるよう、最低 80ms は灯す */
+const voiceSpans={}, leds={};
+/* ドラム系 (mixer の drums 群) は発音の頭だけ光らせる。減衰が拍の間隔より長いものがあり
+   (kick は約0.9秒、4つ打ちの間隔は約0.47秒)、鳴り終わりまで灯すと重なって灯りっぱなしになる */
+const ONSET_ONLY=new Set(MIX_GROUPS.find(([g])=>g==='drums')[1]);
+function markVoice(key,start,end){
+  if((key in MIX) && !(lv(key)>0)) return;
+  if(ONSET_ONLY.has(key)) end=start;   // 下の最低 80ms だけ灯る
+  (voiceSpans[key] || (voiceSpans[key]=[])).push({start, end:Math.max(end,start+.08)});
+}
 
 /* ============================================================
    シーン定義 (docs/SCENES.md)
@@ -950,35 +976,6 @@ function buildHarmony(){
   const kRev=ctx.createGain(); kRev.gain.value=.4;  sparkOut.connect(kRev).connect(revSend);
   const kDly=ctx.createGain(); kDly.gain.value=.35; sparkOut.connect(kDly).connect(dlySend);
 
-  /* ---- インダストリアル・ノイズの発音 (D-38) ----
-   1音ごとに音色を不規則に振る。素材・再生速度・フィルタの種類と帯域・
-   減衰の長さを毎回引き直すので、同じ音は二度と出ない */
-function industrialHit(time,vel,pan){
-  const metal=Math.random()<.45;
-  const src=ctx.createBufferSource();
-  src.buffer = metal ? metalBuf : noiseBuf;
-  src.loop=true;
-  src.playbackRate.value = metal ? rand(.35,2.6) : rand(.6,1.8);
-  // ときどき再生速度を落として、崩れ落ちるような音にする
-  if(Math.random()<.3) src.playbackRate.exponentialRampToValueAtTime(
-    Math.max(.15,src.playbackRate.value*rand(.25,.6)), time+rand(.08,.3));
-
-  const f=ctx.createBiquadFilter();
-  f.type = Math.random()<.55 ? 'bandpass' : 'highpass';
-  f.frequency.value = rand(320,7200);
-  f.Q.value = rand(.8,12);
-  if(Math.random()<.35) f.frequency.exponentialRampToValueAtTime(
-    Math.max(180,f.frequency.value*rand(.2,3)), time+rand(.06,.35));
-
-  const dec=rand(.02,.28);
-  const g=ctx.createGain(), pn=ctx.createStereoPanner();
-  pn.pan.value=clamp(pan+rand(-.08,.08),-1,1);
-  decayTo(g.gain,time,vel*.26,dec,.002);
-  src.connect(f).connect(g).connect(pn).connect(noiseBus);
-  src.start(time); src.stop(time+dec+.05);
-  for(const n of [src,f,g,pn]) disposeAt(n,time+dec+.12);
-}
-
 /* ---- コード弾きの連打 (D-34) ----
      持続する音色の代わりに、サステインを持たない短い和音を連打する。
      専用のステレオディレイ (左右で返しを送り合う ping-pong) へ送り、
@@ -1076,6 +1073,7 @@ function industrialHit(time,vel,pan){
    ディケイの短いアナログシンセの音。音色は小節ごとに引き直す */
 const LEAD_TYPES=['sawtooth','square','triangle','pulse'];
 function leadNote(time,midi,vel,dec,type){
+  markVoice('lead',time,time+dec+.05);
   const g=ctx.createGain(), f=ctx.createBiquadFilter(), pn=ctx.createStereoPanner();
   f.type='lowpass'; f.Q.value=4.5;
   const base=900+current.yy*2600;
@@ -1377,6 +1375,7 @@ function pulseVoice(t,freq,cents,dur,mod){
 
 function bassNote(time,midi,durSec,vel,accent){
   if(!bassReady) return;
+  markVoice(circuit()==='funk' ? 'bassFunk' : 'bass', time, time+durSec);   // funk とそれ以外で量のキーが違う
   const f=mtof(midi), t=time;
   const oscs=[];
 
@@ -1604,6 +1603,7 @@ function padRebuild(time){
 
 // アルペジオと高域リフ。短い撥弦のような音
 function padPluck(time,midi,layerIdx,type,dec,vel){
+  markVoice('strings',time,time+dec+.05);
   const o=ctx.createOscillator(), g=ctx.createGain(), pn=ctx.createStereoPanner();
   o.type=type; o.frequency.value=mtof(midi);
   pn.pan.value=rand(-.5,.5);
@@ -1638,6 +1638,7 @@ function industrialHit(time,vel,pan){
   pn.pan.value=clamp(pan+rand(-.08,.08),-1,1);
   decayTo(g.gain,time,vel*.26,dec,.002);
   src.connect(f).connect(g).connect(pn).connect(noiseBus);
+  markVoice('noise',time,time+dec+.05);
   src.start(time); src.stop(time+dec+.05);
   for(const n of [src,f,g,pn]) disposeAt(n,time+dec+.12);
 }
@@ -1645,6 +1646,7 @@ function industrialHit(time,vel,pan){
 /* ---- コード弾きの連打 (D-34) ----
    サステインを持たず、短いディケイだけで落ちる和音。ステレオディレイで広げる */
 function chordChop(time,vel){
+  markVoice('chop',time,time+.16);
   const tones=chordNotes(48);
   const g=ctx.createGain(), f=ctx.createBiquadFilter(), pn=ctx.createStereoPanner();
   f.type='lowpass'; f.Q.value=3.2;
@@ -1668,6 +1670,7 @@ function chordChop(time,vel){
 /* ---- スタブ回路の発音 (D-9) ----
    裏拍に短く刺す。原音は薄く、ディレイへ送る量が多い */
 function stabHit(time,vel){
+  markVoice('stab',time,time+.2);
   const tones=chordNotes(48);   // 基準は C (midi 48)。12の倍数でないと音名がずれる
   const g=ctx.createGain(), pn=ctx.createStereoPanner();
   pn.pan.value=rand(-.35,.35);
@@ -1748,6 +1751,7 @@ function epThump(time,vel){
 function epChord(time,vel){
   // 開いた和声 (D-66) では根音を省いた開いた配置、そうでなければ従来の積み方
   const notes = lushOn ? voicedNotes(48).slice(1) : rootlessNotes(60);
+  markVoice('ep',time,time+(notes.length-1)*.006+.36);   // 分散した最後の音が鳴り終わるまで
   epThump(time,vel);   // 打鍵の低い衝撃音 (D-68)
   // 伸ばさず歯切れよく切る (D-41)
   notes.forEach((n,i)=>epNote(time+i*.006,n,vel*(i===0?1:.8),.30));
@@ -1761,6 +1765,7 @@ function sparkNote(time,midi,vel,sh){
   // 音価は群ごとの性格で伸縮する (D-76)。ベルの減衰は下の上限で止まる
   const dec=rand(.18,.30)*((sh&&sh.dec)||1);
   const nodes=[];
+  markVoice('riff',time,time+dec+.06);
 
   const sum=ctx.createGain(); sum.gain.value=.5;
   const pn=ctx.createStereoPanner(); pn.pan.value=rand(-.2,.2);
@@ -1819,6 +1824,7 @@ function sparkNote(time,midi,vel,sh){
   const bellDec=Math.min(dec*2.7,.75);
   // 個別の音量 (D-54) が 0 ならベルは作らない
   const bellOn=lv('bell')>0;
+  if(bellOn) markVoice('bell',time,time+bellDec+.06);
   if(bellOn){
     const cf=f*2;                                 // 1オクターブ上を芯にする
     const car=ctx.createOscillator(), mod=ctx.createOscillator(),
@@ -1879,6 +1885,7 @@ function bd(t,v){
   o.frequency.setValueAtTime(f0,t);
   o.frequency.exponentialRampToValueAtTime(f1,t+k.pd);
   const dec=k.dec*(.8+w*.5);
+  markVoice('kick',t,t+dec+.05);
   decayTo(g.gain,t,v*k.gain*(.55+w*.6),dec);
   o.connect(g).connect(p);
   o.start(t); o.stop(t+dec+.05);
@@ -1897,6 +1904,7 @@ function bd(t,v){
 function sd(t,v){
   v*=lv('snare'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
   const k=kit().sd, p=drumOut(-.05);
+  markVoice('snare',t,t+Math.max(.2,k.dec+.05));
   for(const [f,amp] of [[k.tone,.6],[k.tone*1.62,.4]]){
     const o=ctx.createOscillator(), g=ctx.createGain();
     o.type='sine'; o.frequency.setValueAtTime(f,t);
@@ -1917,6 +1925,7 @@ function sd(t,v){
 function cp(t,v){
   v*=lv('clap'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
   const p=drumOut(.12), bp=ctx.createBiquadFilter();
+  markVoice('clap',t,t+.25);
   bp.type='bandpass'; bp.frequency.value=1250; bp.Q.value=1.1; bp.connect(p);
   for(let i=0;i<3;i++){
     const n=ctx.createBufferSource(), g=ctx.createGain();
@@ -1937,6 +1946,7 @@ function cp(t,v){
 function hh(t,v,open){
   v*=lv(open?'ohat':'hat'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
   const k=kit(), dec = open ? k.oh.dec : k.hh.dec;
+  markVoice(open?'ohat':'hat',t,t+dec+.05);
   const n=ctx.createBufferSource(), hp=ctx.createBiquadFilter(), g=ctx.createGain(),
         p=drumOut(open?.18:.10);
   n.buffer=metalBuf; n.loop=true;
@@ -1954,6 +1964,7 @@ function hh(t,v,open){
 function cy(t,v){
   v*=lv('cymbal'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
   const n=ctx.createBufferSource(), hp=ctx.createBiquadFilter(), g=ctx.createGain(), p=drumOut(-.3);
+  markVoice('cymbal',t,t+1.4);
   n.buffer=metalBuf; n.loop=true;
   n.playbackRate.value=2;   // 倍音をすべて1オクターブ上げる
   hp.type='highpass'; hp.frequency.value=6000; hp.Q.value=.7;
@@ -1967,6 +1978,7 @@ function cy(t,v){
 function cb(t,v){
   v*=lv('cowbell'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
   const p=drumOut(.3), bp=ctx.createBiquadFilter();
+  markVoice('cowbell',t,t+.4);
   bp.type='bandpass'; bp.frequency.value=2640; bp.Q.value=1.4; bp.connect(p);
   for(const f of [540,800]){
     const o=ctx.createOscillator(), g=ctx.createGain();
@@ -1982,6 +1994,7 @@ function cb(t,v){
 function tom(t,v,tone){
   v*=lv('tom'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
   const o=ctx.createOscillator(), g=ctx.createGain(), p=drumOut(rand(-.6,.6));
+  markVoice('tom',t,t+.4);
   const f=110*Math.pow(2,tone);
   o.type='sine';
   o.frequency.setValueAtTime(f,t);
@@ -1994,6 +2007,7 @@ function tom(t,v,tone){
 // リム: ごく短い矩形波の打点
 function rim(t,v,pan){
   v*=lv('rim'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
+  markVoice('rim',t,t+.06);
   const o=ctx.createOscillator(), g=ctx.createGain(), p=drumOut(pan);
   o.type='square'; o.frequency.value=rand(1500,1900);
   decayTo(g.gain,t,v*.20,.028);
@@ -2005,6 +2019,7 @@ function rim(t,v,pan){
 function perc(t,v,pan,tone){
   v*=lv('perc'); if(v<=0) return;   // 個別の音量と SOLO / MUTE (D-54 / D-59)
   const k=kit();
+  markVoice('perc',t,t+(k.perc==='fm' ? .3 : (k.perc==='metal' ? .12 : .09)+.05));
   if(k.perc==='fm'){
     const car=ctx.createOscillator(), mod=ctx.createOscillator(),
           md=ctx.createGain(), g=ctx.createGain(), p=drumOut(pan);
@@ -2245,10 +2260,12 @@ const CROSS_GROUP=.8;   // 別の群へ渡る割合 (D-53)
 
 /* 波の位置から次のシーンを選ぶ。直近に出たものは避け、群をまたぐ相手を優先する (D-53)。
    回路もキットも入れ替わるので、変化がいちばん鮮やかに出る */
-function chooseScene(){
+/* avoid に群の名前を渡すと、その群のシーンを候補から外す。
+   再生開始時に stab を避けるのに使う (D-80)。遷移や next では渡さない */
+function chooseScene({avoid=null}={}){
   const yy=waveYY(wavePos);
   const cand=SCENES.map((s,i)=>({i,d:Math.abs(s.yy-yy)}))
-    .filter(c=>!recent.includes(c.i))
+    .filter(c=>!recent.includes(c.i) && SCENES[c.i].group!==avoid)
     .sort((a,b)=>a.d-b.d);
   if(!cand.length) return Math.floor(Math.random()*SCENES.length);
   const near=cand.slice(0,5);   // 波から離れすぎない範囲。この中で相手を選ぶ
@@ -3273,6 +3290,7 @@ function fireEvent(id,bar,time){
       g.gain.exponentialRampToValueAtTime(.0001,time+barSec*1.02);
       n.connect(bp).connect(g).connect(drumBus);
       n.start(time); n.stop(time+barSec*1.1);
+      markVoice('reverse',time,time+barSec*1.1);   // mixer に無い音。インジケーターだけ持つ (D-82)
       disposeAt(n,time+barSec*1.2); disposeAt(bp,time+barSec*1.2); disposeAt(g,time+barSec*1.2);
       break;
     }
@@ -3578,7 +3596,7 @@ setInterval(()=>{ if(performance.now()-smoothAt>=250) smooth(); }, 100);
 /* ============================================================
    UI
    ============================================================ */
-document.getElementById('ver').textContent=VERSION;
+document.getElementById('ver').textContent=VERSION_LABEL;   // tag と、配信時はコミット番号 (D-81)
 const sceneNameEl=document.getElementById('scenename');
 const scenesEl=document.getElementById('scenes');
 let sceneEdited=false;   // 手でスライダーを動かした印。one の (edit) と同じ
@@ -3741,7 +3759,8 @@ function mixSlider(host,key){
     value:mix[key], def:1,
     fmt: d.ratio ? v=>'×'+v.toFixed(2) : v=>Math.round(v*100)+'%',
     onInput:v=>{ mix[key]=v; saveMix(); refreshSoloMute(); }});
-  if(d.ratio) return;   // 倍率には SOLO / MUTE の意味が無い (D-59)
+  if(d.ratio) return;   // 倍率には SOLO / MUTE の意味が無い (D-59)。発音も無いのでインジケーターも付けない
+  addLed(r.previousElementSibling,key);   // label の中、名前の直後 (D-82)
   // スライダーと同じ行に並べる。label の中に入れるとボタンが入れ子になる
   const row=document.createElement('div'); row.className='srow';
   r.replaceWith(row);
@@ -3791,6 +3810,9 @@ const mixerBody=mixGroup('mixer');
 for(const [title,keys] of MIX_GROUPS){
   const g=mixSub(mixerBody,title);
   for(const k of keys) mixSlider(g,k);
+  // mixer に無い発音要素は、インジケーターだけの行を置く (D-82)
+  if(title==='texture') ledRow(g,'reverse','reverse swell',
+    'The rising noise of the reverse event. It is not a mixer channel, so it has an indicator only.');
 }
 // 陰陽のスライダーを掴んでいる間だけ波を止める。放すのはスライダーの外でもよい
 inputs.yy.addEventListener('pointerdown',()=>{ dragging=true; });
@@ -3888,8 +3910,42 @@ new ResizeObserver(resize).observe(cv);
 window.addEventListener('resize',resize);
 resize();
 
+/* ---- 発音インジケーター (D-82) ---- */
+function addLed(label,key){
+  const led=document.createElement('i'); led.className='led'; led.id='led_'+key;
+  label.insertBefore(led, label.querySelector('.val'));
+  leds[key]=led;
+}
+function ledRow(host,key,text,tip){
+  const wrap=document.createElement('div'); wrap.className='param ledonly';
+  const lab=document.createElement('label');
+  const name=document.createElement('span'); name.textContent=text; name.dataset.tip=tip;
+  lab.append(name); addLed(lab,key);
+  wrap.append(lab); host.appendChild(wrap);
+}
+/* 描画のたびに、音声時計でいま鳴っているキーを灯す。状態が変わった要素だけ触る。
+   strings の持続音は1音ずつの予約が無いので、apply() と同じ条件で「開いているか」を見る */
+function updateLeds(){
+  const now = (ctx && running) ? ctx.currentTime : -1;
+  for(const key in leds){
+    let on=false;
+    if(now>=0){
+      const a=voiceSpans[key];
+      if(a && a.length){
+        voiceSpans[key]=a.filter(s=>s.end>=now);
+        on=voiceSpans[key].some(s=>s.start<=now);
+      }
+      if(!on && key==='strings')
+        on = lv('strings')>0 && (circuit()==='sustain' || circuit()==='funk') && padLayers()>=1 && !padChop;
+    }
+    const led=leds[key];
+    if(led._on!==on){ led.classList.toggle('on',on); led._on=on; }
+  }
+}
+
 function draw(){
   requestAnimationFrame(draw);
+  updateLeds();   // キャンバスが隠れている (狭い画面の別タブ) ときも回す
   const w=cv.clientWidth, h=cv.clientHeight;
   if(!w||!h) return;
   g2.fillStyle='#050506'; g2.fillRect(0,0,w,h);
@@ -4106,6 +4162,7 @@ function stopAudio(){
   muteHatUntilBar=-1; muteKickUntilBar=-1; glitchBar=-1; epGuest=false;
   pendingScene=-1; transitionEndBar=-1; seqB=null; pendingSpill=null; sparkSpill=null;
   sparkMotif=null; sparkAnswerAt=-1;   // リフのモチーフと応答も持ち越さない (D-75)
+  for(const k in voiceSpans) voiceSpans[k].length=0;   // 予約済みの発音も消して、インジケーターを落とす (D-82)
   evLeadUntil=0; nextPending=false;
   if(phaserWet){ phaserWet.gain.cancelScheduledValues(ctx.currentTime); phaserWet.gain.setValueAtTime(0,ctx.currentTime); }
   if(drumMixB) endMixFades(ctx.currentTime);
@@ -4159,10 +4216,12 @@ document.addEventListener('focusin',  e=>{ const el=nearest(e.target); if(el) sh
 document.addEventListener('focusout', hideTip);
 window.addEventListener('blur', hideTip);
 
-// 初期シーンは波の位置 (陰寄り) から引く
+/* 初期シーンは波の位置 (陰寄り) から引く。ただし stab / dark の群は避ける (D-80)。
+   単調なので、そこから始まると最初の数分の体験が良くない。
+   波が陰寄りなので避けないと候補が stab に偏り、20回中6回 stab から始まっていた */
 wavePos=yyToWavePos(P.yy.def);
 newWavePeriod();
-enterScene(chooseScene());
+enterScene(chooseScene({avoid:'stab'}));
 pickProg();
 sceneBars=sceneLengthBars();
 readLook();
