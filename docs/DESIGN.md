@@ -1524,8 +1524,8 @@ D-60 でネットワークにも繋がないので、実行時に問い合わせ
 - 表示 (`#ver`) は `v0.5 a1b2c3d` の形。置き換わっていないとき (手元で直接開いた、テストで配信した) は番号を出さない。
   7桁以上の16進に見えるときだけ出す
 - **git はファイル中の同じ書式をすべて置き換える**ので、コメントや判定の文字列にその書式を書かない
-- デプロイ (elevator-noise の `Makefile`。このリポジトリの外) を、`cp` から
-  `git -C ../elevator-two -c core.abbrev=7 archive HEAD index.html | tar -x -C public/two/` に替えた。
+- デプロイ (`mrmt/elevator-noise` の `site/Makefile`。このリポジトリの外) を、`cp` から
+  `git -C ~/agent/elevator-two -c core.abbrev=7 archive HEAD index.html | tar -x -C public/two/` に替えた。
   **配信されるのはコミット済みの HEAD の中身だけになる。** 表示の番号と中身が必ず一致する代わりに、
   未コミットの手元の変更はデプロイされない。どのブランチの HEAD でも配れる点も同じ
 - 狭い画面ではバージョンごと隠れる (D-71)。mediaSession の表示は tag のまま
