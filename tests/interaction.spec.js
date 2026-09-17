@@ -215,6 +215,8 @@ test('タイトルの左に、上の階層へのアイコンのリンクがあ�
   // D-69。アイコンは index.html に埋め込み、色は --ink
   const link = page.locator('header > a.home');
   await expect(link).toHaveAttribute('href', '../');
+  // 遷移すると演奏が止まるので、about と同じく別のタブで開く (#15)
+  await expect(link).toHaveAttribute('target', '_blank');
   await expect(link.locator('svg path')).toHaveCount(3);
   await expect(link).toBeVisible();
   expect(await link.evaluate(el => getComputedStyle(el).color)).toBe('rgb(244, 244, 238)');
