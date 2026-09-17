@@ -2224,6 +2224,11 @@ const qsNum=(key,lo,hi)=>{
   return Number.isFinite(n) ? clamp(n,lo,hi) : null;
 };
 const forcedSparkQ=qsNum('sparkq',.5,18), forcedSparkCut=qsNum('sparkcut',.25,4);
+/* 開発用。?sparklow でメロディ全体を必ず1オクターブ下げ、?sparklow=0 で下げない (D-79) */
+const forcedSparkLow=(()=>{
+  const v=QS.get('sparklow');
+  return v===null ? null : !(v==='0' || v==='false');
+})();
 let seqB=null, patSeedB=1;    // ミックス中に重ねる、新シーンぶんの並び
 let sceneStartBar=0;     // そのシーンが始まった小節
 let sceneBars=0;         // このシーンを何小節続けるか
@@ -2811,6 +2816,7 @@ let sparkLabel='', sparkLabelBar=-1;    // どの型で出たかを monitor に�
 let sparkMotif=null;        // {steps, rhythm, uses, life}
 let sparkMotifUse=0;        // その回が何回目の使い回しか。monitor に出す
 let sparkTimbre=null;       // その回の音色の組 (D-77)。応答はこれをそのまま使う
+let sparkLow=false;         // その回はメロディ全体を1オクターブ下げるか (D-79)。応答も同じ
 let sparkAnswerAt=-1;       // 呼びかけに応答を返す小節 (D-75)
 const SPARK_REUSE=.5;       // 覚えた形を使い直す確率
 const SPARK_ANSWER=.35;     // 呼びかけに応答を返す確率
@@ -2834,6 +2840,7 @@ const SPARK_RHYTHMS={
    上だけ振る。下げると「キラキラ」の性格が薄れ、D-52 のオクターブ下げが
    ベースやスタブの域まで降りてしまう。幅は20半音のまま保つ */
 const SPARK_FOLDS={mid:[70,89], high:[75,94]};
+const SPARK_LOW=.3;   // メロディ全体を1オクターブ下げる割合 (D-79)。畳み先の下限とは別に、回ごとに引く
 
 /* ---- リフの音色の組 (D-77) ----
    回ごとに1組引き、フレーズ内でも動かす。1音ごとのミクロな揺らぎは耳に届かなかった
@@ -2964,13 +2971,16 @@ function motifLine(tones,steps){
 
 /* アクセントに1オクターブ下を使う (D-52)。頭と、跳んで着いた音だけ。
    続けては落とさない。旋律ごと下がって、ただの移調に化けるため */
-function sparkVoice(tones,line,leap){
+function sparkVoice(tones,line,leap,whole){
   const out=[]; let low=false;
   for(let i=0;i<line.length;i++){
-    low = !low && (i===0 ? Math.random()<.5 : leap[i-1] && Math.random()<.4);
+    /* 全体を1オクターブ下げた回 (D-79) はアクセントを付けない。さらに下へ降りると
+       ベースの上端と濁る。下げた回の音域は、アクセント音がもともと出ていた範囲に収まる */
+    low = !whole && !low && (i===0 ? Math.random()<.5 : leap[i-1] && Math.random()<.4);
+    const down = low || whole;
     const vel=(i===0?.95:.72+Math.random()*.16);
     // 下げるとフィルタが低い側で開くぶん暗くなるので、少しだけ強く弾く
-    out.push({midi:tones[line[i]]-(low?12:0), vel:low?Math.min(vel*1.15,1):vel});
+    out.push({midi:tones[line[i]]-(down?12:0), vel:down?Math.min(vel*1.15,1):vel});
   }
   return out;
 }
@@ -3023,6 +3033,8 @@ function planSpark(bar){
   // 畳み先は回ごとに引く (D-76)。応答も引き直すので、同じ形が別の高さで返ることがある
   const fold = forcedSparkFold || wpick(prof.fold);
   const tones=sparkTones(fold);
+  // 3割でメロディ全体を1オクターブ下げる (D-79)。応答は呼びかけと同じ高さで返す
+  if(!answerNow) sparkLow = forcedSparkLow ?? (Math.random()<SPARK_LOW);
 
   /* 覚えた形を使い回すか、新しく引くか (D-75)。
      応答は必ず変奏なので、覚えた形の側に入る */
@@ -3036,14 +3048,14 @@ function planSpark(bar){
     sparkRhythm = v.rhythm;
     sparkMotif = {...sparkMotif, steps:v.steps, rhythm:v.rhythm, uses:sparkMotif.uses+1};
     const {line,leap}=motifLine(tones,v.steps);
-    sparkNotes=sparkVoice(tones,line,leap);
+    sparkNotes=sparkVoice(tones,line,leap,sparkLow);
   }else{
     // リズムだけ前の形から引き継ぐことがある。旋律を替えても身振りは残る
     sparkRhythm = (sparkMotif && Math.random()<.3) ? sparkMotif.rhythm : drawSparkRhythm(bar);
     const [nLo,nHi]=prof.n;                          // 音数の幅は群ごと (D-76)
     const n=nLo+Math.floor(Math.random()*(nHi-nLo+1));
     const {line,leap}=drawSparkLine(tones,n);
-    sparkNotes=sparkVoice(tones,line,leap);
+    sparkNotes=sparkVoice(tones,line,leap,sparkLow);
     const steps=[];
     for(let i=1;i<line.length;i++) steps.push(line[i]-line[i-1]);
     sparkMotif={steps, rhythm:sparkRhythm, uses:1, life:2+Math.floor(Math.random()*3)};
@@ -3129,7 +3141,8 @@ function placeSpark(bar){
     // 音色は輪郭が平らでなければその名前、発振寸前なら ring を足す (D-77)
     const tb=sparkTimbre;
     sparkLabel=sparkRhythm+(sparkMotifUse>1?'·m'+sparkMotifUse:'')
-      +(tb&&tb.cutShape!=='flat'?' '+tb.cutShape:'')+(tb&&tb.ring?' ring':'');
+      +(tb&&tb.cutShape!=='flat'?' '+tb.cutShape:'')+(tb&&tb.ring?' ring':'')
+      +(sparkLow?' low':'');   // メロディ全体を下げた回 (D-79)
     sparkLabelBar=bar;
   }
   if(bar>=sparkAt){ sparkAt=-1; sparkNotes=null; sparkOff=null; }   // 取りこぼしたら捨てる
